@@ -36,5 +36,6 @@ export default defineConfig({
     "publications",
     "highlights",
     "refresh_tokens",
+    "contact_messages",
   ],
 });

@@ -6,6 +6,18 @@ const mobileCorsHeaders = [
   { key: "Access-Control-Allow-Headers", value: "Content-Type, Authorization" },
 ];
 
+// Form liên hệ công khai của portfolio (domain khác) — TÁCH RIÊNG khỏi CORS
+// mobile. Chỉ cho đúng origin của portfolio; thiếu PORTFOLIO_ORIGIN thì KHÔNG
+// đặt Allow-Origin (trình duyệt chặn) — không bao giờ dùng "*".
+const portfolioOrigin = process.env.PORTFOLIO_ORIGIN;
+const publicCorsHeaders = [
+  ...(portfolioOrigin ? [{ key: "Access-Control-Allow-Origin", value: portfolioOrigin }] : []),
+  { key: "Access-Control-Allow-Methods", value: "POST, OPTIONS" },
+  { key: "Access-Control-Allow-Headers", value: "Content-Type" },
+  { key: "Access-Control-Max-Age", value: "86400" },
+  { key: "Vary", value: "Origin" },
+];
+
 const nextConfig: NextConfig = {
   // CORS chỉ cho API mà app Flutter gọi (cross-origin bằng Bearer token):
   // /api/mobile/* và các API dùng chung web + Flutter: Kiều Lâu, Tàng Kinh Các,
@@ -18,6 +30,7 @@ const nextConfig: NextConfig = {
       { source: "/api/tang-kinh-cac/:path*", headers: mobileCorsHeaders },
       { source: "/api/tra-dinh/:path*", headers: mobileCorsHeaders },
       { source: "/api/user/:path*", headers: mobileCorsHeaders },
+      { source: "/api/public/:path*", headers: publicCorsHeaders },
       // `:path*` khớp cả 0 đoạn → gồm luôn /api/projects, /api/tasks.
       ...["projects", "tasks", "du-an", "finance", "learn"].map((p) => ({
         source: `/api/${p}/:path*`,

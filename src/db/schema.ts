@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { boolean, date, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, date, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 
 // Enum đổi tên từ "DocumentType" (Prisma) sang "document_type" — 5 giá trị
 // giữ nguyên thứ tự thật trong DB.
@@ -347,6 +347,27 @@ export const highlights = pgTable("highlights", {
   note: text("note"),
   createdAt: timestamp("createdAt", { mode: "string" }).notNull().defaultNow(),
 });
+
+// ===== Liên hệ công khai — tin nhắn từ form trên portfolio (POST /api/public/contact) =====
+// Không thuộc user nào (người gửi là khách). Không lưu IP thô: ip_hash =
+// HMAC-SHA256(IP, AUTH_SECRET), chỉ để giới hạn tần suất theo người gửi.
+export const contactMessages = pgTable(
+  "contact_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    message: text("message").notNull(),
+    ipHash: text("ip_hash").notNull(),
+    emailStatus: text("email_status").notNull(), // sent | failed | skipped
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp("read_at", { withTimezone: true }), // Amber đánh dấu đã đọc
+  },
+  (table) => [
+    index("contact_messages_ip_hash_created_at_idx").on(table.ipHash, table.createdAt),
+    index("contact_messages_created_at_idx").on(table.createdAt),
+  ]
+);
 
 // ============================================================
 // Relations — đặt sau CÙNG, sau khi mọi bảng đã được định nghĩa,

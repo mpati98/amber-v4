@@ -23,6 +23,9 @@ const SELF_AUTH_API_PREFIXES = [
   "/api/tra-dinh",
   // Hồ sơ + đổi mật khẩu (trước chỉ trang Cài đặt web gọi qua cookie).
   "/api/user",
+  // Route CÔNG KHAI (form liên hệ portfolio): không dùng phiên đăng nhập, tự
+  // chống lạm dụng (giới hạn kích thước, bẫy bot, giới hạn tần suất).
+  "/api/public",
 ];
 
 function isSelfAuthApi(pathname: string): boolean {
