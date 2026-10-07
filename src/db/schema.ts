@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { boolean, date, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, date, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 
 // Enum đổi tên từ "DocumentType" (Prisma) sang "document_type" — 5 giá trị
 // giữ nguyên thứ tự thật trong DB.
@@ -51,30 +51,102 @@ export const projects = pgTable("projects", {
   // Chu kỳ của dự án — dùng cho project có vòng đời rõ ràng (Finance: 1 tháng, Learn: ngày bắt đầu/kết thúc khóa)
   startDate: date("start_date"),
   endDate: date("end_date"),
+  // Mục tiêu của dự án (văn bản tự do)
+  goal: text("goal"),
+  // ACTIVE | PAUSED | DONE
+  status: varchar("status", { length: 16 }).notNull().default("ACTIVE"),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const tasks = pgTable("tasks", {
+// Kết quả then chốt (KR) của dự án. AUTO: tiến độ đếm từ các việc gắn vào KR;
+// MANUAL: nhập tay current / target kèm đơn vị.
+export const keyResults = pgTable(
+  "key_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    mode: varchar("mode", { length: 16 }).notNull().default("MANUAL"), // AUTO | MANUAL
+    unit: varchar("unit", { length: 32 }),
+    target: integer("target").notNull().default(0),
+    current: integer("current").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("key_results_project_id_idx").on(table.projectId)]
+);
+
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    krId: uuid("kr_id").references(() => keyResults.id, { onDelete: "set null" }),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    // PREP (chuẩn bị) | WAITING (chờ) | IN_PROGRESS (đang thực thi) | DONE (hoàn thành)
+    status: varchar("status", { length: 32 }).notNull().default("PREP"),
+    importance: integer("importance").notNull(),
+    urgency: integer("urgency").notNull(),
+    durationMinutes: integer("duration_minutes").notNull().default(15),
+    startDate: date("start_date"),
+    dueDate: date("due_date"),
+    prepLeadDays: integer("prep_lead_days"),
+    // Chuỗi RRULE (RFC 5545) cho task lặp lại — null nghĩa là task chỉ xảy ra 1 lần.
+    rrule: text("rrule"),
+    isMilestone: boolean("is_milestone").notNull().default(false),
+    statusChangedAt: timestamp("status_changed_at", { withTimezone: true }).notNull().defaultNow(),
+    notifyDeadline: boolean("notify_deadline").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("tasks_kr_id_idx").on(table.krId)]
+);
+
+// Checklist con của một việc — tick hết không tự chuyển việc sang DONE.
+export const checklistItems = pgTable(
+  "checklist_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    text: varchar("text", { length: 500 }).notNull(),
+    done: boolean("done").notNull().default(false),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("checklist_items_task_id_idx").on(table.taskId)]
+);
+
+// Việc hằng ngày — không thuộc dự án. weekdays: 1 = thứ Hai … 7 = Chủ nhật.
+export const routines = pgTable("routines", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
-  title: varchar("title", { length: 255 }).notNull(),
-  description: text("description"),
-  // PREP (chuẩn bị) | WAITING (chờ) | IN_PROGRESS (đang thực thi) | DONE (hoàn thành)
-  status: varchar("status", { length: 32 }).notNull().default("PREP"),
-  importance: integer("importance").notNull(),
-  urgency: integer("urgency").notNull(),
-  durationMinutes: integer("duration_minutes").notNull().default(15),
-  startDate: date("start_date"),
-  dueDate: date("due_date"),
-  prepLeadDays: integer("prep_lead_days"),
-  // Chuỗi RRULE (RFC 5545) cho task lặp lại — null nghĩa là task chỉ xảy ra 1 lần.
-  rrule: text("rrule"),
+  name: varchar("name", { length: 255 }).notNull(),
+  weekdays: integer("weekdays").array().notNull().default([1, 2, 3, 4, 5, 6, 7]),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Mỗi dòng = một ngày đã làm routine đó (tick tay).
+export const routineLogs = pgTable(
+  "routine_logs",
+  {
+    routineId: uuid("routine_id")
+      .notNull()
+      .references(() => routines.id, { onDelete: "cascade" }),
+    logDate: date("log_date").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.routineId, table.logDate] })]
+);
 
 export const taskOccurrences = pgTable("task_occurrences", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -117,6 +189,8 @@ export const financeTransactions = pgTable("finance_transactions", {
   projectId: uuid("project_id")
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }), // dự án tài chính (tháng) mà giao dịch này thuộc về
+  // Dự án (STANDARD) mà giao dịch được gắn vào để xem thu-chi theo dự án; xoá dự án thì giao dịch ở lại sổ chung.
+  linkedProjectId: uuid("linked_project_id").references(() => projects.id, { onDelete: "set null" }),
   accountId: uuid("account_id")
     .notNull()
     .references(() => financeAccounts.id, { onDelete: "cascade" }),
@@ -126,7 +200,7 @@ export const financeTransactions = pgTable("finance_transactions", {
   note: text("note"),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("finance_transactions_linked_project_id_idx").on(table.linkedProjectId)]);
 
 export const financeBudgets = pgTable("finance_budgets", {
   id: uuid("id").primaryKey().defaultRandom(),

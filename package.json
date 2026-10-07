@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:baseline": "tsx scripts/baseline-migrations.ts",
     "db:studio": "drizzle-kit studio",
     "test": "tsx --test src/lib/*.test.ts"
   },

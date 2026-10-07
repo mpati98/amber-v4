@@ -22,6 +22,20 @@
       "when": 1789184434901,
       "tag": "0002_eminent_grey_gargoyle",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791376982991,
+      "tag": "0003_catchup_existing_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791377007358,
+      "tag": "0004_nghi_su_duong_du_an",
+      "breakpoints": true
     }
   ]
 }

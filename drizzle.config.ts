@@ -37,5 +37,9 @@ export default defineConfig({
     "highlights",
     "refresh_tokens",
     "contact_messages",
+    "key_results",
+    "checklist_items",
+    "routines",
+    "routine_logs",
   ],
 });
