@@ -90,7 +90,7 @@ export const tasks = pgTable(
     krId: uuid("kr_id").references(() => keyResults.id, { onDelete: "set null" }),
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
-    // PREP (chuẩn bị) | WAITING (chờ) | IN_PROGRESS (đang thực thi) | DONE (hoàn thành)
+    // PREP (chuẩn bị) | IN_PROGRESS (đang thực thi) | REVIEW (thẩm định) | DONE (hoàn thành)
     status: varchar("status", { length: 32 }).notNull().default("PREP"),
     importance: integer("importance").notNull(),
     urgency: integer("urgency").notNull(),
@@ -479,6 +479,11 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   project: one(projects, { fields: [tasks.projectId], references: [projects.id] }),
   keyResult: one(keyResults, { fields: [tasks.krId], references: [keyResults.id] }),
   occurrences: many(taskOccurrences),
+  checklistItems: many(checklistItems),
+}));
+
+export const checklistItemsRelations = relations(checklistItems, ({ one }) => ({
+  task: one(tasks, { fields: [checklistItems.taskId], references: [tasks.id] }),
 }));
 
 export const keyResultsRelations = relations(keyResults, ({ one, many }) => ({

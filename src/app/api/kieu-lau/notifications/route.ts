@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/withAuth";
 import { db } from "@/db";
 import { projects, tasks, financeTransactions, financeBudgets } from "@/db/schema";
-import { eq, and, ne, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { eq, and, ne, isNotNull, isNull, sql } from "drizzle-orm";
 import { formatVND } from "@/lib/currency";
 import { vnMonthBounds, vnToday } from "@/lib/vn-time";
+import { isDeadlineAlert } from "@/lib/deadline-alert";
 
 type Alert = {
   id: string;
@@ -13,10 +14,6 @@ type Alert = {
   detail?: string;
   href: string;
 };
-
-function addDays(date: Date, days: number): Date {
-  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
-}
 
 function daysSince(isoDate: string, now: Date): number {
   return (now.getTime() - new Date(isoDate).getTime()) / (24 * 60 * 60 * 1000);
@@ -29,12 +26,12 @@ export const GET = withAuth(async (_req, userId) => {
   // Mốc ngày/tháng theo lịch VN — server chạy UTC, 0h–7h sáng VN vẫn là "hôm qua".
   const today = vnToday(now);
 
-  // 1) Task sắp/đã trễ hạn (dueDate <= 3 ngày tới, chưa DONE)
-  const in3Days = vnToday(addDays(now, 3));
+  // 1) Việc bật thông báo hạn: dueDate ≤ hôm nay + prepLeadDays (mặc định 3), chưa DONE.
+  // Quá hạn vẫn hiện tới khi DONE. SQL lọc thô, điều kiện chính nằm ở isDeadlineAlert.
   const dueTasks = await db.query.tasks.findMany({
-    where: and(eq(tasks.userId, userId), ne(tasks.status, "DONE"), isNotNull(tasks.dueDate), lte(tasks.dueDate, in3Days)),
+    where: and(eq(tasks.userId, userId), eq(tasks.notifyDeadline, true), ne(tasks.status, "DONE"), isNotNull(tasks.dueDate)),
   });
-  for (const t of dueTasks) {
+  for (const t of dueTasks.filter((t) => isDeadlineAlert(t, today))) {
     alerts.push({
       id: `task:${t.id}`,
       kind: "TASK_DUE",
