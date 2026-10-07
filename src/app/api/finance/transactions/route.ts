@@ -2,22 +2,46 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/withAuth";
 import { db } from "@/db";
 import { financeAccounts, financeCategories, financeTransactions, projects } from "@/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { logActivity } from "@/lib/activity-log";
+import { applyBalance, ensureCurrentFinanceMonth } from "@/lib/finance-ops";
+import { findMonthForDate, isInCurrentVnMonth, vnDateOf } from "@/lib/finance-month";
+import { isOwnedStandardProject } from "@/lib/linked-project";
 
-const createTransactionSchema = z.object({
-  projectId: z.string().uuid(),
-  accountId: z.string().uuid(),
-  categoryId: z.string().uuid().optional(),
-  kind: z.enum(["INCOME", "EXPENSE"]),
-  amount: z.number().positive(),
-  note: z.string().optional(),
-  occurredAt: z.string().optional(),
-});
+const createTransactionSchema = z
+  .object({
+    // Tháng tài chính (project FINANCE). Có thể bỏ khi có linkedProjectId — server tự tìm theo occurredAt.
+    projectId: z.string().uuid().optional(),
+    // Dự án STANDARD mà giao dịch được gắn vào để xem thu-chi theo dự án.
+    linkedProjectId: z.string().uuid().optional(),
+    accountId: z.string().uuid(),
+    categoryId: z.string().uuid().optional(),
+    kind: z.enum(["INCOME", "EXPENSE"]),
+    amount: z.number().positive(),
+    note: z.string().optional(),
+    occurredAt: z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: "invalid date" }).optional(),
+  })
+  .refine((d) => d.projectId || d.linkedProjectId, { message: "Required", path: ["projectId"] });
 
 export const GET = withAuth(async (req, userId) => {
   const projectId = req.nextUrl.searchParams.get("projectId");
+  const linkedProjectId = req.nextUrl.searchParams.get("linkedProjectId");
+
+  // ?projectId= (giao dịch của một tháng) giữ nguyên; ?linkedProjectId= lấy mọi giao dịch
+  // gắn với một dự án STANDARD, qua mọi tháng. Có cả hai thì projectId được ưu tiên.
+  if (!projectId && linkedProjectId) {
+    if (!(await isOwnedStandardProject(linkedProjectId, userId))) {
+      return NextResponse.json({ error: "project_not_found" }, { status: 404 });
+    }
+    const rows = await db.query.financeTransactions.findMany({
+      where: (t, { eq: eqOp, and: andOp }) => andOp(eqOp(t.userId, userId), eqOp(t.linkedProjectId, linkedProjectId)),
+      with: { category: true, account: true },
+      orderBy: (t, { desc }) => desc(t.occurredAt),
+    });
+    return NextResponse.json(rows);
+  }
+
   if (!projectId) {
     return NextResponse.json({ error: "projectId is required" }, { status: 400 });
   }
@@ -36,17 +60,39 @@ export const POST = withAuth(async (req, userId) => {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const { accountId, projectId, kind, amount, occurredAt, ...rest } = parsed.data;
+  const { accountId, projectId: givenProjectId, linkedProjectId, kind, amount, occurredAt, ...rest } = parsed.data;
+
+  if (linkedProjectId && !(await isOwnedStandardProject(linkedProjectId, userId))) {
+    return NextResponse.json({ error: "linked_project_invalid" }, { status: 400 });
+  }
+
+  const when = occurredAt ? new Date(occurredAt) : new Date();
 
   // Tháng tài chính phải là project FINANCE của chính user và còn mở. Trước đây
   // không kiểm tra gì: ghi được giao dịch vào project bất kỳ (của người khác,
   // project thường, học tập) hoặc vào tháng đã kết thúc.
   // Không tồn tại / của người khác / không phải FINANCE → cùng 1 mã 404.
-  const project = await db.query.projects.findFirst({
-    where: and(eq(projects.id, projectId), eq(projects.userId, userId), eq(projects.type, "FINANCE")),
-  });
-  if (!project) {
-    return NextResponse.json({ error: "project_not_found" }, { status: 404 });
+  let project;
+  if (givenProjectId) {
+    project = await db.query.projects.findFirst({
+      where: and(eq(projects.id, givenProjectId), eq(projects.userId, userId), eq(projects.type, "FINANCE")),
+    });
+    if (!project) {
+      return NextResponse.json({ error: "project_not_found" }, { status: 404 });
+    }
+  } else {
+    // Không gửi projectId (chỉ có linkedProjectId): tìm tháng chứa occurredAt theo giờ VN;
+    // chưa có mà đó là tháng hiện tại thì tạo bằng đúng logic của POST /api/finance/projects.
+    const months = await db.query.projects.findMany({
+      where: and(eq(projects.userId, userId), eq(projects.type, "FINANCE")),
+    });
+    project = findMonthForDate(months, vnDateOf(when)) ?? undefined;
+    if (!project) {
+      if (!isInCurrentVnMonth(when)) {
+        return NextResponse.json({ error: "finance_month_not_found" }, { status: 400 });
+      }
+      project = (await ensureCurrentFinanceMonth(userId)).project;
+    }
   }
   if (project.archivedAt) {
     return NextResponse.json({ error: "project_archived" }, { status: 400 });
@@ -77,19 +123,16 @@ export const POST = withAuth(async (req, userId) => {
       .values({
         ...rest,
         accountId,
-        projectId,
+        projectId: project.id,
+        linkedProjectId: linkedProjectId ?? null,
         kind,
         amount: String(amount),
-        occurredAt: occurredAt ? new Date(occurredAt) : new Date(),
+        occurredAt: when,
         userId,
       })
       .returning();
 
-    const delta = kind === "INCOME" ? amount : -amount;
-    await tx
-      .update(financeAccounts)
-      .set({ currentBalance: sql`${financeAccounts.currentBalance} + ${delta}` })
-      .where(eq(financeAccounts.id, accountId));
+    await applyBalance(tx, { accountId, kind, amount });
 
     return created;
   });
