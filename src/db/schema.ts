@@ -461,6 +461,7 @@ export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
 export const projectsRelations = relations(projects, ({ one, many }) => ({
   user: one(users, { fields: [projects.userId], references: [users.id] }),
   tasks: many(tasks),
+  keyResults: many(keyResults),
   financeTransactions: many(financeTransactions),
   financeBudgets: many(financeBudgets),
   financeBalanceSnapshot: one(financeBalanceSnapshots, {
@@ -476,7 +477,13 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
   user: one(users, { fields: [tasks.userId], references: [users.id] }),
   project: one(projects, { fields: [tasks.projectId], references: [projects.id] }),
+  keyResult: one(keyResults, { fields: [tasks.krId], references: [keyResults.id] }),
   occurrences: many(taskOccurrences),
+}));
+
+export const keyResultsRelations = relations(keyResults, ({ one, many }) => ({
+  project: one(projects, { fields: [keyResults.projectId], references: [projects.id] }),
+  tasks: many(tasks),
 }));
 
 export const taskOccurrencesRelations = relations(taskOccurrences, ({ one }) => ({
