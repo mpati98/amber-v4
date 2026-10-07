@@ -7,7 +7,8 @@ import { logActivity } from "@/lib/activity-log";
 import { userOwnsProject } from "@/lib/project-access";
 import { dateString } from "@/lib/project-input";
 import { krError, prepLeadDaysSchema, taskRuleError, TASK_STATUSES } from "@/lib/task-input";
-import { checklistWith, getTaskView } from "@/lib/task-view";
+import { checklistWith, getTaskView, withAttention } from "@/lib/task-view";
+import { vnToday } from "@/lib/vn-time";
 
 const createTaskSchema = z.object({
   projectId: z.string().uuid().optional(),
@@ -15,8 +16,8 @@ const createTaskSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
   status: z.enum(TASK_STATUSES).default("PREP"),
-  importance: z.number().int().min(1).max(3),
-  urgency: z.number().int().min(1).max(3),
+  importance: z.number().int().min(1).max(3).default(2),
+  urgency: z.number().int().min(1).max(3).default(2),
   durationMinutes: z.number().int().min(5).default(15),
   startDate: dateString.optional(),
   dueDate: dateString.optional(),
@@ -43,7 +44,8 @@ export const GET = withAuth(async (req, userId) => {
     },
     with: { occurrences: true, checklistItems: checklistWith },
   });
-  return NextResponse.json(rows);
+  const today = vnToday();
+  return NextResponse.json(rows.map((t) => withAttention(t, today)));
 });
 
 export const POST = withAuth(async (req, userId) => {

@@ -13,7 +13,8 @@ export const GET = withAuth(async (req, userId) => {
     with: { tasks: true },
   });
 
-  const active = allProjects.filter((p) => !p.archivedAt);
+  // STANDARD: cột status quyết định trạng thái (archivedAt không còn dùng).
+  const active = allProjects.filter((p) => p.status === "ACTIVE");
   const activeWithProgress = active.map((p) => {
     const total = p.tasks.length;
     const done = p.tasks.filter((t) => t.status === "DONE").length;
@@ -28,7 +29,7 @@ export const GET = withAuth(async (req, userId) => {
   });
 
   const completedThisYear = allProjects.filter(
-    (p) => p.archivedAt && vnYear(new Date(p.archivedAt)) === year
+    (p) => p.status === "DONE" && p.closedAt && vnYear(new Date(p.closedAt)) === year
   ).length;
 
   const upcoming = active

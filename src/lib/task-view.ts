@@ -1,6 +1,8 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { checklistItems, tasks } from "@/db/schema";
+import { taskAttention } from "@/lib/task-attention";
+import { vnToday } from "@/lib/vn-time";
 
 /** Phần `with` dùng chung: checklist xếp theo position, chỉ các cột API trả ra. */
 export const checklistWith = {
@@ -8,10 +10,19 @@ export const checklistWith = {
   orderBy: [asc(checklistItems.position), asc(checklistItems.createdAt)],
 };
 
-/** 1 việc kèm checklistItems (đúng dạng POST/PATCH trả về). */
+/** Thêm cờ `attention` (OVERDUE | IDLE | null) vào việc, tính theo ngày hôm nay giờ VN. */
+export function withAttention<T extends { status: string; dueDate: string | null; statusChangedAt: Date | string }>(
+  task: T,
+  today: string = vnToday()
+) {
+  return { ...task, attention: taskAttention(task, today) };
+}
+
+/** 1 việc kèm checklistItems và attention (đúng dạng POST/PATCH trả về). */
 export async function getTaskView(id: string) {
-  return db.query.tasks.findFirst({
+  const row = await db.query.tasks.findFirst({
     where: eq(tasks.id, id),
     with: { checklistItems: checklistWith },
   });
+  return row ? withAttention(row) : row;
 }
