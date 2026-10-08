@@ -42,6 +42,10 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
   if (Object.keys(parsed.data).length === 0) {
     return NextResponse.json({ error: "empty patch" }, { status: 400 });
   }
+  // Chuyển sang DONE phải qua POST /close (để lưu tài liệu tổng kết); mở lại (DONE → ACTIVE / PAUSED) vẫn PATCH được.
+  if (parsed.data.status === "DONE" && project.status !== "DONE") {
+    return NextResponse.json({ error: "use_close_endpoint" }, { status: 400 });
+  }
   const startDate = parsed.data.startDate === undefined ? project.startDate : parsed.data.startDate;
   const endDate = parsed.data.endDate === undefined ? project.endDate : parsed.data.endDate;
   if (endBeforeStart(startDate, endDate)) {
