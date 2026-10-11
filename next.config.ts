@@ -29,6 +29,7 @@ const nextConfig: NextConfig = {
       { source: "/api/kieu-lau/:path*", headers: mobileCorsHeaders },
       { source: "/api/tang-kinh-cac/:path*", headers: mobileCorsHeaders },
       { source: "/api/tra-dinh/:path*", headers: mobileCorsHeaders },
+      { source: "/api/brain-logs/:path*", headers: mobileCorsHeaders },
       { source: "/api/user/:path*", headers: mobileCorsHeaders },
       { source: "/api/public/:path*", headers: publicCorsHeaders },
       // `:path*` khớp cả 0 đoạn → gồm luôn /api/projects, /api/tasks.

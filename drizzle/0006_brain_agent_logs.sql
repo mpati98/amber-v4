@@ -1,0 +1,40 @@
+CREATE TABLE "agent_logs" (
+	"id" uuid PRIMARY KEY NOT NULL,
+	"user_id" uuid NOT NULL,
+	"created_at" timestamp with time zone NOT NULL,
+	"received_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"session_id" text,
+	"turn_index" integer,
+	"agent" varchar(32) NOT NULL,
+	"source" varchar(16) DEFAULT 'agent' NOT NULL,
+	"lang" varchar(8),
+	"model_name" text,
+	"adapter_version" text,
+	"prompt_version" text,
+	"user_input" text DEFAULT '' NOT NULL,
+	"retrieved_context" jsonb,
+	"messages" jsonb,
+	"tools" jsonb,
+	"raw_output" text,
+	"parsed_output" jsonb,
+	"parse_ok" boolean,
+	"tool_name" text,
+	"tool_args" jsonb,
+	"tool_result" jsonb,
+	"tool_ok" boolean,
+	"error" text,
+	"entity_type" text,
+	"entity_id" text,
+	"latency_ms" integer,
+	"prompt_tokens" integer,
+	"completion_tokens" integer,
+	"outcome" varchar(16) DEFAULT 'unknown' NOT NULL,
+	"outcome_at" timestamp with time zone,
+	"corrected_output" jsonb,
+	"corrected_at" timestamp with time zone,
+	"exclude_from_training" boolean DEFAULT false NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "agent_logs" ADD CONSTRAINT "agent_logs_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "agent_logs_user_created_at_idx" ON "agent_logs" USING btree ("user_id","created_at");--> statement-breakpoint
+CREATE INDEX "agent_logs_user_outcome_idx" ON "agent_logs" USING btree ("user_id","outcome");

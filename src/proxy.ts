@@ -21,6 +21,8 @@ const SELF_AUTH_API_PREFIXES = [
   "/api/finance",
   "/api/learn",
   "/api/tra-dinh",
+  // Nhật ký amber-brain (dataset fine-tune): đọc/đánh giá từ Flutter, ingest từ brain.
+  "/api/brain-logs",
   // Hồ sơ + đổi mật khẩu (trước chỉ trang Cài đặt web gọi qua cookie).
   "/api/user",
   // Route CÔNG KHAI (form liên hệ portfolio): không dùng phiên đăng nhập, tự

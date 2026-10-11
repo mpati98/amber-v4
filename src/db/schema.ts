@@ -443,6 +443,57 @@ export const contactMessages = pgTable(
   ]
 );
 
+// ===== Nhật ký lượt gọi mô hình của amber-brain — dữ liệu để dựng dataset fine-tune =====
+// amber-brain sinh id (uuid) và đẩy lên qua POST /api/brain-logs/ingest; app Flutter chỉ đọc, đánh giá
+// (feedback) và bật/tắt exclude_from_training — KHÔNG sửa nội dung log. Không có cơ chế tự xóa (chỉ cascade
+// khi xóa user). outcome: unknown | accepted | corrected | rejected | retried. outcome_at là mốc đặt outcome
+// gần nhất (brain hoặc app), bản mới hơn thắng khi hai bên cùng đặt.
+export const agentLogs = pgTable(
+  "agent_logs",
+  {
+    id: uuid("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    sessionId: text("session_id"),
+    turnIndex: integer("turn_index"),
+    agent: varchar("agent", { length: 32 }).notNull(), // expense | web_search | chat | ...
+    source: varchar("source", { length: 16 }).notNull().default("agent"), // agent | manual
+    lang: varchar("lang", { length: 8 }), // vi | en | mixed
+    modelName: text("model_name"),
+    adapterVersion: text("adapter_version"),
+    promptVersion: text("prompt_version"),
+    userInput: text("user_input").notNull().default(""),
+    retrievedContext: jsonb("retrieved_context"),
+    messages: jsonb("messages"),
+    tools: jsonb("tools"),
+    rawOutput: text("raw_output"),
+    parsedOutput: jsonb("parsed_output"),
+    parseOk: boolean("parse_ok"),
+    toolName: text("tool_name"),
+    toolArgs: jsonb("tool_args"),
+    toolResult: jsonb("tool_result"),
+    toolOk: boolean("tool_ok"),
+    error: text("error"),
+    entityType: text("entity_type"),
+    entityId: text("entity_id"),
+    latencyMs: integer("latency_ms"),
+    promptTokens: integer("prompt_tokens"),
+    completionTokens: integer("completion_tokens"),
+    outcome: varchar("outcome", { length: 16 }).notNull().default("unknown"),
+    outcomeAt: timestamp("outcome_at", { withTimezone: true }),
+    correctedOutput: jsonb("corrected_output"),
+    correctedAt: timestamp("corrected_at", { withTimezone: true }),
+    excludeFromTraining: boolean("exclude_from_training").notNull().default(false),
+  },
+  (table) => [
+    index("agent_logs_user_created_at_idx").on(table.userId, table.createdAt),
+    index("agent_logs_user_outcome_idx").on(table.userId, table.outcome),
+  ]
+);
+
 // ============================================================
 // Relations — đặt sau CÙNG, sau khi mọi bảng đã được định nghĩa,
 // để tránh lỗi "Cannot access 'X' before initialization" lúc runtime.

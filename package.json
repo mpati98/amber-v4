@@ -11,7 +11,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:baseline": "tsx scripts/baseline-migrations.ts",
     "db:studio": "drizzle-kit studio",
-    "test": "tsx --test src/lib/*.test.ts"
+    "test": "tsx --test src/lib/*.test.ts",
+    "test:brain-logs": "tsx scripts/brain-logs-e2e.ts"
   },
   "engines": {
     "node": "22.x"

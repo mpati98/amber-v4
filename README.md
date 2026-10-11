@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# amber-v4
 
-## Getting Started
+Backend API của **Amber** — ứng dụng quản lý cá nhân (dự án, tài chính, học tập,
+sách & tài liệu, tin tức, luyện tiếng Anh với AI). Repo này **chỉ có API**; giao
+diện là app Flutter ở repo [amber-flutter](https://github.com/mpati98/amber-flutter).
 
-First, run the development server:
+## Công nghệ
+
+- Next.js 16 (App Router, route handler — không có trang web)
+- Postgres trên Neon, truy cập bằng Drizzle ORM (`postgres.js`)
+- Vercel Blob (lưu file), Groq (chat, chuyển giọng nói ↔ chữ)
+- Xác thực JWT cho app (access token 1 giờ + refresh token 30 ngày, xoay vòng)
+
+## Chạy local
+
+Cần Node 22.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp <nguồn .env của bạn> .env   # xem bảng biến bên dưới
+npm run dev                    # http://localhost:3000/api/health
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Tạo tài khoản (hoặc đặt lại mật khẩu nếu email đã tồn tại):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npx tsx scripts/create-admin.ts <email> <password>
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Kiểm tra trước khi commit:
 
-## Learn More
+```bash
+npx tsc --noEmit && npx eslint src && npm run build
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Biến môi trường
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Biến | Bắt buộc | Mô tả |
+|---|---|---|
+| `DATABASE_URL` | ✅ | Chuỗi kết nối Postgres (Neon). Nên dùng host `-pooler` |
+| `MOBILE_JWT_SECRET` | ✅ | Khoá ký access token cho app |
+| `AUTH_SECRET` | ✅ | Khoá của NextAuth |
+| `GROQ_API_KEY` | ✅ | Gọi Groq (chat, Whisper, TTS) |
+| `BLOB_READ_WRITE_TOKEN` | ✅ | Upload/đọc file trên Vercel Blob |
+| `MOBILE_APP_ORIGIN` | ✅ production | Origin của app Flutter web cho CORS (thiếu thì mở `*`) |
+| `AUTH_TRUST_HOST` | chỉ khi tự host | `true` khi chạy `next start` ngoài Vercel |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## API
 
-## Deploy on Vercel
+Mọi route nằm dưới `/api`, trả JSON. Trừ đăng nhập và health check, request cần
+header `Authorization: Bearer <accessToken>`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Nhóm | Prefix |
+|---|---|
+| Đăng nhập app | `/api/mobile/auth/login`, `/refresh`, `/logout` |
+| Dự án & công việc | `/api/projects`, `/api/tasks`, `/api/du-an` |
+| Tài chính | `/api/finance` |
+| Học tập | `/api/learn` |
+| Sách & tài liệu (Tàng Kinh Các) | `/api/tang-kinh-cac` |
+| Thông báo & tin tức (Kiều Lâu) | `/api/kieu-lau` |
+| Luyện tiếng Anh (Trà Đình) | `/api/tra-dinh` |
+| Hồ sơ | `/api/user` |
+| Health check | `/api/health` |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Lỗi trả dạng `{ "error": "<mã>" }`; một số kèm `message` tiếng Việt (vd
+`ai_unavailable` khi AI lỗi — 502, `file_too_large` khi file > 4 MB — 413).
+
+## Database
+
+Schema nằm trong `src/db/schema.ts`, migration trong `drizzle/`.
+(`prisma/migrations/` chỉ là lịch sử trước khi chuyển hẳn sang Drizzle.)
+
+## Deploy
+
+Vercel, vùng function `sin1` (cấu hình trong `vercel.json`, gần Neon
+`ap-southeast-1`). Đặt các biến môi trường ở trên trong Vercel project; với
+`DATABASE_URL` production dùng host `-pooler` của nhánh main.
+
+Ghi chú cho người phát triển (kiến trúc, quy ước, việc còn treo): xem
+[`CLAUDE.md`](CLAUDE.md).
