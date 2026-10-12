@@ -7,3 +7,6 @@ export const weekdaysSchema = z
   .refine((a) => new Set(a).size === a.length, { message: "weekdays must be unique" });
 
 export const ALL_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
+
+/** Loại việc hằng ngày: CHECK = tick tay; WORKOUT = ghi buổi tập. */
+export const routineKindSchema = z.enum(["CHECK", "WORKOUT"]);

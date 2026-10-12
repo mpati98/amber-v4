@@ -2,15 +2,16 @@ import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { routines } from "@/db/schema";
+import { routineLogs, routines } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
 import { findOwnedRoutine, routineViews } from "@/lib/routines";
-import { weekdaysSchema } from "@/lib/routine-input";
+import { routineKindSchema, weekdaysSchema } from "@/lib/routine-input";
 import { vnToday } from "@/lib/vn-time";
 
 const patchRoutineSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   weekdays: weekdaysSchema.optional(),
+  kind: routineKindSchema.optional(),
 });
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -28,6 +29,11 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
   }
   if (Object.keys(parsed.data).length === 0) {
     return NextResponse.json({ error: "empty patch" }, { status: 400 });
+  }
+  // Đã có log thì không đổi loại: log CHECK và log WORKOUT có dữ liệu khác nhau.
+  if (parsed.data.kind !== undefined && parsed.data.kind !== routine.kind) {
+    const [anyLog] = await db.select({ id: routineLogs.id }).from(routineLogs).where(eq(routineLogs.routineId, routine.id)).limit(1);
+    if (anyLog) return NextResponse.json({ error: "kind_locked" }, { status: 409 });
   }
   const [updated] = await db.update(routines).set(parsed.data).where(eq(routines.id, routine.id)).returning();
   const [view] = await routineViews([updated], vnToday());

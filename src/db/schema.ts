@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { boolean, date, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, date, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 
 // Enum đổi tên từ "DocumentType" (Prisma) sang "document_type" — 5 giá trị
 // giữ nguyên thứ tự thật trong DB.

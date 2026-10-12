@@ -4,13 +4,14 @@ import { db } from "@/db";
 import { routines } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
 import { listRoutines, routineViews } from "@/lib/routines";
-import { ALL_WEEKDAYS, weekdaysSchema } from "@/lib/routine-input";
+import { ALL_WEEKDAYS, routineKindSchema, weekdaysSchema } from "@/lib/routine-input";
 import { dateString } from "@/lib/project-input";
 import { vnToday } from "@/lib/vn-time";
 
 const createRoutineSchema = z.object({
   name: z.string().min(1).max(255),
   weekdays: weekdaysSchema.optional(),
+  kind: routineKindSchema.optional(),
 });
 
 export const GET = withAuth(async (req, userId) => {
@@ -29,7 +30,7 @@ export const POST = withAuth(async (req, userId) => {
   }
   const [created] = await db
     .insert(routines)
-    .values({ userId, name: parsed.data.name, weekdays: parsed.data.weekdays ?? ALL_WEEKDAYS })
+    .values({ userId, name: parsed.data.name, weekdays: parsed.data.weekdays ?? ALL_WEEKDAYS, kind: parsed.data.kind ?? "CHECK" })
     .returning();
   const [view] = await routineViews([created], vnToday());
   return NextResponse.json(view, { status: 201 });
