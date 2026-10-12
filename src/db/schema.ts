@@ -10,6 +10,11 @@ export const documentType = pgEnum("document_type", ["TEXT", "CHECKLIST", "MINDM
 export const publicationFormat = pgEnum("publication_format", ["PHYSICAL", "EBOOK", "AUDIOBOOK"]);
 export const publicationStatus = pgEnum("publication_status", ["TO_READ", "READING", "READ", "ABANDONED"]);
 
+// Việc hằng ngày: CHECK = tick tay; WORKOUT = ghi buổi tập (phút + danh sách bài).
+export const routineKind = pgEnum("routine_kind", ["CHECK", "WORKOUT"]);
+// Cách đo một bài tập: số lần / số hiệp × số lần / thời lượng.
+export const exerciseMeasure = pgEnum("exercise_measure", ["REPS", "SETS_REPS", "DURATION"]);
+
 // ============================================================
 // Bảng (định nghĩa hết trước — mọi relations() dồn xuống cuối file
 // để tránh lỗi TDZ khi 1 bảng tham chiếu tới bảng định nghĩa sau nó)
@@ -131,21 +136,43 @@ export const routines = pgTable("routines", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
+  kind: routineKind("kind").notNull().default("CHECK"),
   weekdays: integer("weekdays").array().notNull().default([1, 2, 3, 4, 5, 6, 7]),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Mỗi dòng = một ngày đã làm routine đó (tick tay).
+// Mỗi dòng = một ngày đã làm routine đó (tick tay hoặc ghi buổi tập).
+// id riêng để workout_exercises tham chiếu; (routine_id, log_date) vẫn duy nhất.
 export const routineLogs = pgTable(
   "routine_logs",
   {
+    id: uuid("id").primaryKey().defaultRandom(),
     routineId: uuid("routine_id")
       .notNull()
       .references(() => routines.id, { onDelete: "cascade" }),
     logDate: date("log_date").notNull(),
+    durationMinutes: integer("duration_minutes"),
   },
-  (table) => [primaryKey({ columns: [table.routineId, table.logDate] })]
+  (table) => [uniqueIndex("routine_logs_routine_id_log_date_key").on(table.routineId, table.logDate)]
+);
+
+// Bài tập trong một buổi tập (routine kind = WORKOUT). Xoá log thì xoá theo.
+export const workoutExercises = pgTable(
+  "workout_exercises",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    routineLogId: uuid("routine_log_id")
+      .notNull()
+      .references(() => routineLogs.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    name: text("name").notNull(),
+    measure: exerciseMeasure("measure").notNull(),
+    sets: integer("sets"),
+    reps: integer("reps"),
+    durationSeconds: integer("duration_seconds"),
+  },
+  (table) => [index("workout_exercises_routine_log_id_idx").on(table.routineLogId)]
 );
 
 export const taskOccurrences = pgTable("task_occurrences", {

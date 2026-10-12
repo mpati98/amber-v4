@@ -8,7 +8,7 @@ export default defineConfig({
   dbCredentials: {
     url: process.env.DATABASE_URL!,
   },
-  // Toàn bộ 22 bảng Drizzle quản lý sau khi gộp xong Giai đoạn 1 — chỉ còn
+  // Toàn bộ các bảng Drizzle quản lý sau khi gộp xong Giai đoạn 1 — chỉ còn
   // loại trừ _prisma_migrations (bookkeeping của Prisma, không phải bảng dữ
   // liệu). Danh sách lấy từ information_schema.tables thật, không đoán từ
   // schema.ts.
@@ -42,5 +42,6 @@ export default defineConfig({
     "checklist_items",
     "routines",
     "routine_logs",
+    "workout_exercises",
   ],
 });

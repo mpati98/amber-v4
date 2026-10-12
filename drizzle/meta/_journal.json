@@ -50,6 +50,13 @@
       "when": 1791695978052,
       "tag": "0006_brain_agent_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791813136026,
+      "tag": "0007_petite_satana",
+      "breakpoints": true
     }
   ]
 }
