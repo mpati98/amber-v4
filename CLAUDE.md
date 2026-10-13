@@ -68,10 +68,11 @@ vercel.json             { "regions": ["sin1"] } — gần Neon Singapore
   ngẫu nhiên, lưu hash SHA-256 trong `refresh_tokens`, sống **30 ngày**, xoay
   vòng (dùng xong xoá). Đổi mật khẩu xoá toàn bộ refresh token của user.
 - Route public (không withAuth, cố ý): `/api/mobile/auth/{login,refresh,logout}`,
-  `/api/auth/*` (NextAuth + `register` tự đóng 403 khi đã có user), `/api/health`.
+  `/api/auth/*` (NextAuth + `register` tự đóng 403 khi đã có user), `/api/public/*`, `/api/health`.
 - **`proxy.ts`**: mọi prefix trong `SELF_AUTH_API_PREFIXES` được proxy cho qua
   (route tự check bằng withAuth — **route nào quên withAuth sẽ mở công khai**),
-  OPTIONS trả 204 cho preflight. Thêm nhóm route mới cho Flutter ⇒ phải thêm
+  OPTIONS trả 204 cho preflight. Public routes (không auth) trong
+  `PUBLIC_API_PREFIXES`. Thêm nhóm route mới cho Flutter ⇒ phải thêm
   vào **cả** `SELF_AUTH_API_PREFIXES` (proxy.ts) **và** CORS (`next.config.ts`).
   Path ngoài `/api` để Next tự trả 404.
 - NextAuth (cookie) chỉ còn là di sản web; `lib/auth.ts` vẫn có
@@ -91,11 +92,12 @@ vercel.json             { "regions": ["sin1"] } — gần Neon Singapore
 
 | Tòa | Prefix | Ghi chú |
 |---|---|---|
-| Nghị Sự Đường | `/api/projects`, `/api/tasks`, `/api/du-an`, `/api/finance`, `/api/learn` | không có prefix chung. `projects.type`: STANDARD / FINANCE (1 project/tháng) / LEARN (khóa học) / PRACTICE (buổi Trà Đình) |
+| Nghị Sự Đường | `/api/projects`, `/api/tasks`, `/api/du-an`, `/api/finance`, `/api/learn` | không có prefix chung; việc hằng ngày + buổi tập: `/api/du-an/routines` (mục riêng bên dưới). `projects.type`: STANDARD (dự án với KR, việc hằng ngày, bảng Kanban) / FINANCE (1 project/tháng) / LEARN (khóa học) / PRACTICE (buổi Trà Đình) |
 | Tàng Kinh Các | `/api/tang-kinh-cac` | sách, tài liệu, highlight, mục tiêu đọc, upload Blob private (đọc lại qua `/blob/[...path]`) |
 | Kiều Lâu | `/api/kieu-lau` | cảnh báo tính lúc gọi (không lưu DB), nhật ký `activity_logs`, RSS |
 | Trà Đình | `/api/tra-dinh` | luyện tiếng Anh với AI: chat, ghi âm→chữ, đọc thành tiếng, bài test đầu vào, điểm 6 kỹ năng |
 | Hồ sơ | `/api/user` | đổi tên, đổi mật khẩu |
+| Public | `/api/public/*` | contact form (không auth) |
 
 `alert.href` của Kiều Lâu là đường dẫn route phía app Flutter (`/du-an`,
 `/finance/<id>`, `/hoc-tap/<id>`) — đổi path phải sửa cả 2 bên.
@@ -148,6 +150,31 @@ Vercel giới hạn body 4,5 MB → `upload` và `transcribe` chặn > 4 MB, tr�
 - Rate limit đăng nhập; upload > 4,5 MB cần client upload thẳng lên Blob.
 - `prompt-amber-v4-migration.md` là tài liệu lịch sử của đợt chuyển v3 → v4 —
   không sửa nội dung. `README.md` vẫn là mẫu create-next-app.
+
+## Việc hằng ngày và ghi buổi tập (`/api/du-an/routines`)
+
+Bảng `routines` (`kind` CHECK | WORKOUT, mặc định CHECK), `routine_logs` (mỗi dòng = một ngày đã làm; `id` uuid riêng,
+`(routine_id, log_date)` duy nhất bằng unique index `routine_logs_routine_id_log_date_key`; `duration_minutes` null với CHECK),
+`workout_exercises` (bài của một log, `ON DELETE CASCADE`, `measure` REPS | SETS_REPS | DURATION). Migration **0007**
+(số 0006 là `agent_logs`). Chuỗi ngày không đổi: có log là ngày đó đã làm.
+
+- `GET /` (`?date=` mặc định hôm nay VN): mỗi routine có `kind`, `todayLog` (`null` | `{durationMinutes, exercises[]}`, bài
+  theo `position`), và với WORKOUT thêm `lastWorkout` (bài của buổi gần nhất TRƯỚC ngày tham chiếu, `null` nếu chưa có).
+  Key `lastWorkout` chỉ xuất hiện ở WORKOUT. Mỗi routine WORKOUT tốn thêm 1 truy vấn `lastWorkout`.
+- `POST` / `PATCH /[id]` nhận `kind`. Đổi `kind` khi routine đã có log (bất kỳ ngày nào) → 409 `kind_locked`; gửi đúng kind
+  hiện tại thì được.
+- `PUT /[id]/logs/[date]`:
+  - CHECK: như cũ — idempotent, không nhận ngày tương lai (`future_date`), không nhận ngày không đến hạn (`not_scheduled`),
+    **cho phép ngày đã qua**; body bị bỏ qua.
+  - WORKOUT: body `{durationMinutes: 1–1440, exercises?: [...]}` (tối đa 50 bài, mặc định `[]`); **chỉ hôm nay**
+    (`not_today`). Upsert log + xoá-ghi lại bài trong 1 transaction, gọi lại cùng ngày là sửa buổi tập. Mỗi bài theo
+    `measure`: REPS `{name, reps}`, SETS_REPS `{name, sets, reps}`, DURATION `{name, durationSeconds}`; trường thừa bị từ chối
+    (400 `{error: zodFlatten}`). Validate ở `lib/workout-input.ts` (có test).
+- `DELETE /[id]/logs/[date]`: xoá log, bài tập xoá theo (cascade). Trả routine như PUT.
+- Mã lỗi: `routine_not_found` 404, `future_date` / `not_scheduled` / `not_today` 400, `kind_locked` 409. Mọi response PUT/DELETE
+  là routine đầy đủ (tính quanh hôm nay).
+- Kiểm thử: `npm test` (validate), `npm run test:routines` (tích hợp trên dev branch, cần `npm run dev` ở :3000, từ chối chạy nếu
+  DB là production).
 
 ## Nhật ký amber-brain (`/api/brain-logs`)
 
