@@ -18,9 +18,15 @@ npm run db:studio    # drizzle-kit studio
 npx tsx scripts/create-admin.ts <email> <password>   # tạo user / đặt lại mật khẩu nếu đã có
 ```
 
-Không có test tự động trong repo này. Kiểm chứng bằng curl với Bearer token
-(ký JWT bằng `jose` + `MOBILE_JWT_SECRET` trong script tạm) rồi xoá dữ liệu test.
-`tsc` lỗi trong `.next/types/validator.ts` sau khi xoá route → `rm -rf .next/types`.
+```bash
+npm test                  # unit test (tsx --test src/lib/*.test.ts) — không cần DB
+npm run test:brain-logs   # tích hợp /api/brain-logs trên Neon DEV (cần npm run dev)
+npm run test:routines     # tích hợp việc hằng ngày + buổi tập trên Neon DEV (cần npm run dev)
+```
+
+Hai bộ test tích hợp tạo user tạm, dọn sạch sau khi chạy và **từ chối chạy nếu `DATABASE_URL` là production**. Với route
+chưa có test: kiểm chứng bằng curl với Bearer token (ký JWT bằng `jose` + `MOBILE_JWT_SECRET` trong script tạm) rồi xoá
+dữ liệu test. `tsc` lỗi trong `.next/types/validator.ts` sau khi xoá route → `rm -rf .next/types`.
 
 ## Môi trường
 
@@ -34,11 +40,14 @@ Biến code cần (không bao giờ in giá trị ra log/output):
 | `MOBILE_APP_ORIGIN` | CORS trong `next.config.ts` — thiếu thì thành `*`; production phải là domain app Flutter |
 | `AUTH_SECRET` | NextAuth tự đọc |
 | `BLOB_READ_WRITE_TOKEN` | `@vercel/blob` tự đọc |
+| `PORTFOLIO_ORIGIN` | CORS cho form liên hệ của site portfolio (`next.config.ts`); thiếu thì KHÔNG mở origin nào |
+| `RESEND_API_KEY`, `CONTACT_NOTIFY_EMAIL` | `lib/contact.ts` — gửi email báo có tin nhắn liên hệ |
 | `AUTH_TRUST_HOST=true` | chỉ cần khi tự host (`next start` ngoài Vercel) |
 
 **`.env` local trỏ Neon DEV BRANCH** (host `…-pooler`). URL production giữ ở
-`DATABASE_URL_PRODUCTION` (code không đọc). Build/test trên dev trước, áp dụng
-production sau. Kiểm tra host trước mọi test ghi dữ liệu. Production trên
+`DATABASE_URL_PRODUCTION` (code không đọc; chỉ dùng khi migrate production, xem "Triển khai production"). Build/test
+trên dev trước, áp dụng production sau. `DATABASE_URL_TEST_MIGRATE` (nếu còn trong `.env`) là nhánh thử migration
+`test-migrate-0007`, không còn cần — xoá nhánh trên Neon rồi bỏ biến. Kiểm tra host trước mọi test ghi dữ liệu. Production trên
 Vercel nên dùng host `-pooler` của main.
 
 `.gitignore` chặn `.env*` — nếu cần `.env.example` phải thêm `!.env.example`.
@@ -47,7 +56,7 @@ Vercel nên dùng host `-pooler` của main.
 
 ```
 src/
-  app/api/**/route.ts   52 route handler (không có page/layout nào — build vẫn chạy)
+  app/api/**/route.ts   69 route handler (không có page/layout nào — build vẫn chạy)
   db/index.ts           postgres.js + drizzle, { max: 5, prepare: false, idle_timeout: 20 }
   db/schema.ts          toàn bộ schema Drizzle (1 file)
   lib/                  helper dùng chung (xem dưới)
@@ -141,6 +150,32 @@ Vercel giới hạn body 4,5 MB → `upload` và `transcribe` chặn > 4 MB, tr�
 `{ error: "file_too_large", message }`. Tên file qua `sanitizeFileName`
 (`lib/filename.ts`) trước khi ghép đường dẫn Blob (giữ tiền tố timestamp).
 
+## Triển khai production
+
+- **Backend** deploy bằng `git push origin main` (project Vercel `amber-v4` nối GitHub `mpati98/amber-v4`, nhánh `main`;
+  alias `api.duangmai.io.vn`). Build ~40 giây. Deploy backend TRƯỚC, Flutter sau.
+- **Đang chạy** (13/10/2026): `dpl_FyeZ2MAr67PuXrisVbLitU3DBa4M`, build từ commit `6228a47`.
+  **Mốc rollback** (bản trước đó, commit `e83ba54`): `dpl_EFfp2L1FjKaDkNapWnZJWiD96CEm`.
+  Rollback: `vercel rollback <id>` hoặc promote từ dashboard; DB không tự lùi — migration chỉ thêm cột/bảng nên bản cũ
+  vẫn chạy được trên schema mới.
+- **Migration production đã áp**: 0006 (`agent_logs`) và 0007 (buổi tập) ngày 13/10/2026. Nhánh Neon sao lưu trước đó:
+  `backup-truoc-workout-20261013` (tách từ production; giữ một thời gian rồi xoá).
+- **Quy trình migrate production đã chạy tốt** — làm lại đúng thế này:
+  1. Sao lưu: tạo nhánh Neon từ production (console; máy này không có `neonctl`).
+  2. Thử trước trên nhánh tách từ production (`test-migrate-*`): ghi số dòng + số dư ví + số migration đã áp
+     (`select count(*) from drizzle.__drizzle_migrations`; nó cho biết migration nào còn treo — lần này 6 đã áp, nghĩa là
+     0006 cũng chưa áp). Bảng còn rỗng thì chèn vài dòng tạm cho đúng bảng sẽ bị đổi (backfill) rồi mới migrate, xong xoá.
+     Chạy `db:migrate`, kiểm: số dòng và số dư không đổi, id không null/không trùng, index duy nhất có, bảng mới có, số
+     migration tăng đúng.
+  3. Migrate production: đặt `DATABASE_URL` tường minh cho TỪNG lệnh (từ `DATABASE_URL_PRODUCTION`; `drizzle.config.ts` dùng
+     `dotenv/config` nên biến đã đặt sẵn thắng `.env`), **in endpoint trước và dừng nếu không phải
+     `ep-divine-feather-b3zba6y0`**, không in chuỗi kết nối, không ghi dòng test lên production. Đọc trước/sau bằng
+     kết nối chỉ-đọc. Chạy cả `db:migrate` cho MỌI migration còn treo, không chỉ cái mình vừa viết.
+  4. Push → chờ deployment Ready → xác nhận commit + alias (`vercel api /v13/deployments/<id>`) → smoke test không ghi:
+     GET không token trả 401 (không 404/500), `/api/health` 200, preflight OPTIONS từ `https://amber.duangmai.io.vn` được phép.
+- **Máy này không có thông tin đăng nhập GitHub**: người dùng tự `git push`, đừng cố push hay cấu hình credential.
+- **Không chạy test hợp đồng / test tích hợp với production** (chúng ghi dữ liệu thật); chỉ chạy trên Neon dev.
+
 ## Việc còn treo (chưa quyết)
 
 - Kết thúc buổi Trà Đình và bài test đầu vào **ghi đè** toàn bộ điểm kỹ năng AI
@@ -156,7 +191,7 @@ Vercel giới hạn body 4,5 MB → `upload` và `transcribe` chặn > 4 MB, tr�
 Bảng `routines` (`kind` CHECK | WORKOUT, mặc định CHECK), `routine_logs` (mỗi dòng = một ngày đã làm; `id` uuid riêng,
 `(routine_id, log_date)` duy nhất bằng unique index `routine_logs_routine_id_log_date_key`; `duration_minutes` null với CHECK),
 `workout_exercises` (bài của một log, `ON DELETE CASCADE`, `measure` REPS | SETS_REPS | DURATION). Migration **0007**
-(số 0006 là `agent_logs`). Chuỗi ngày không đổi: có log là ngày đó đã làm.
+(số 0006 là `agent_logs`); cả hai đã áp lên production ngày 13/10/2026. Chuỗi ngày không đổi: có log là ngày đó đã làm.
 
 - `GET /` (`?date=` mặc định hôm nay VN): mỗi routine có `kind`, `todayLog` (`null` | `{durationMinutes, exercises[]}`, bài
   theo `position`), và với WORKOUT thêm `lastWorkout` (bài của buổi gần nhất TRƯỚC ngày tham chiếu, `null` nếu chưa có).
