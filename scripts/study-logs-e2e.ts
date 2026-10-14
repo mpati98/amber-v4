@@ -88,6 +88,9 @@ async function main() {
     check("hết phần → khóa DONE", m2.j.course.status === "DONE" && m2.j.course.progress.doneSections === 2 && m2.j.log.sections.map((s: any) => s.markedDone).join() === "false,true", m2);
     const cd = (await H("GET", `/courses/${course.id}`)).j;
     check("chi tiết khóa: recentLogs có 2 buổi gắn khóa", cd.status === "DONE" && cd.recentLogs.length === 2, cd.recentLogs);
+    const rl = Object.fromEntries(cd.recentLogs.map((l: any) => [l.id, l]));
+    check("recentLogs kèm sections {sectionId, title, markedDone}, cùng dạng GET /logs", rl[m1.j.log.id].sections.length === 1 && rl[m1.j.log.id].sections[0].title === "P1" && rl[m1.j.log.id].sections[0].markedDone === true
+      && rl[m2.j.log.id].sections.map((s: any) => s.markedDone).join() === "false,true" && rl[m1.j.log.id].courseTitle === "Khóa 1" && rl[m1.j.log.id].logDate === today, rl);
 
     // ---- PATCH / DELETE hôm nay ----
     const lid = m2.j.log.id;

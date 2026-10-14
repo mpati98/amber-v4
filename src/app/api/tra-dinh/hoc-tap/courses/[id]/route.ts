@@ -15,6 +15,7 @@ import {
   renumberQueue,
   statusColumns,
 } from "@/lib/study-courses";
+import { logViews } from "@/lib/study-logs";
 
 type RouteParams = { params: Promise<{ id: string }> };
 const notFound = () => NextResponse.json({ error: "course_not_found" }, { status: 404 });
@@ -24,12 +25,14 @@ export const GET = withAuth(async (_req, userId, { params }: RouteParams) => {
   const course = await findOwnedCourse(db, id, userId);
   if (!course) return notFound();
 
-  const recentLogs = await db
-    .select({ id: studyLogs.id, logDate: studyLogs.logDate, minutes: studyLogs.minutes, note: studyLogs.note, createdAt: studyLogs.createdAt })
+  // 10 buổi gần nhất của khóa, cùng dạng GET /logs (kèm các phần đã học trong buổi).
+  const recentIds = await db
+    .select({ id: studyLogs.id })
     .from(studyLogs)
     .where(and(eq(studyLogs.courseId, course.id), eq(studyLogs.userId, userId)))
     .orderBy(desc(studyLogs.logDate), desc(studyLogs.createdAt))
     .limit(10);
+  const recentLogs = await logViews(db, recentIds.map((r) => r.id));
 
   return NextResponse.json({
     ...(await courseView(db, userId, course)),
