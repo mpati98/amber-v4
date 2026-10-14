@@ -112,3 +112,23 @@ test("vsBaseline: khóa cuối hàng học có delta; bỏ qua khóa thiếu bas
   assert.equal(lastQueueDelta([course({ status: "DONE", deltaDays: 5 })]), null);
   assert.equal(lastQueueDelta([]), null);
 });
+
+test("week.days[].done theo từng môn: A 90/60 + B 30/60 → false; cả hai đủ → true; không môn có mục tiêu → false", () => {
+  const subjects = [{ id: "a", name: "A", dailyGoalMinutes: 60 }, { id: "b", name: "B", dailyGoalMinutes: 60 }];
+  const doneOn = (a: number, b: number) =>
+    buildOverview({ ...base, subjects, totals: new Map([["a", new Map([["2026-10-12", a]])], ["b", new Map([["2026-10-12", b]])]]) }).week.days[0];
+  const lopsided = doneOn(90, 30); // tổng 120 ≥ 120 nhưng B thiếu
+  assert.equal(lopsided.minutes, 120);
+  assert.equal(lopsided.goalMinutes, 120);
+  assert.equal(lopsided.done, false);
+  assert.equal(doneOn(60, 60).done, true);
+  assert.equal(doneOn(90, 60).done, true);
+  assert.equal(doneOn(0, 0).done, false);
+  const none = buildOverview({ ...base, subjects: [{ id: "n", name: "n", dailyGoalMinutes: null }] }).week.days[0];
+  assert.equal(none.done, false);
+});
+
+test("môn không có mục tiêu không chặn done của ngày", () => {
+  const o = buildOverview({ ...base, subjects: [{ id: "a", name: "A", dailyGoalMinutes: 60 }, { id: "n", name: "n", dailyGoalMinutes: null }], totals: new Map([["a", new Map([["2026-10-12", 60]])]]) });
+  assert.equal(o.week.days[0].done, true);
+});

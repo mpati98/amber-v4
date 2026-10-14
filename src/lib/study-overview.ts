@@ -84,7 +84,9 @@ export function buildOverview<C extends OverviewCourse>(input: OverviewInput<C>)
   const dailyGoal = goalSubjects.reduce((n, s) => n + (s.dailyGoalMinutes ?? 0), 0);
   const days = weekDates.map((date) => {
     const minutes = goalSubjects.reduce((n, s) => n + minutesOn(s.id, date), 0);
-    return { date, minutes, goalMinutes: dailyGoal, done: dailyGoal > 0 && minutes >= dailyGoal };
+    // done: MỌI môn có mục tiêu đều đủ phần của mình trong ngày (không cộng gộp giữa các môn).
+    const done = goalSubjects.length > 0 && goalSubjects.every((s) => minutesOn(s.id, date) >= (s.dailyGoalMinutes ?? 0));
+    return { date, minutes, goalMinutes: dailyGoal, done };
   });
   const weekMinutes = days.reduce((n, d) => n + d.minutes, 0);
   const weekGoal = dailyGoal * 7;
