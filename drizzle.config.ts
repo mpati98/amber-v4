@@ -43,5 +43,11 @@ export default defineConfig({
     "routines",
     "routine_logs",
     "workout_exercises",
+    "study_subjects",
+    "study_courses",
+    "study_course_sections",
+    "study_logs",
+    "study_log_sections",
+    "study_day_reasons",
   ],
 });

@@ -1,5 +1,5 @@
-import { relations } from "drizzle-orm";
-import { boolean, date, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { relations, sql } from "drizzle-orm";
+import { boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 
 // Enum đổi tên từ "DocumentType" (Prisma) sang "document_type" — 5 giá trị
 // giữ nguyên thứ tự thật trong DB.
@@ -11,9 +11,14 @@ export const publicationFormat = pgEnum("publication_format", ["PHYSICAL", "EBOO
 export const publicationStatus = pgEnum("publication_status", ["TO_READ", "READING", "READ", "ABANDONED"]);
 
 // Việc hằng ngày: CHECK = tick tay; WORKOUT = ghi buổi tập (phút + danh sách bài).
-export const routineKind = pgEnum("routine_kind", ["CHECK", "WORKOUT"]);
+// STUDY = việc học theo môn (Trà Đình), không dùng routine_logs — xem study_logs.
+export const routineKind = pgEnum("routine_kind", ["CHECK", "WORKOUT", "STUDY"]);
 // Cách đo một bài tập: số lần / số hiệp × số lần / thời lượng.
 export const exerciseMeasure = pgEnum("exercise_measure", ["REPS", "SETS_REPS", "DURATION"]);
+
+// Học tập (Trà Đình): trạng thái khóa học và lý do chưa đủ mục tiêu trong ngày.
+export const studyCourseStatus = pgEnum("study_course_status", ["WISHLIST", "QUEUED", "ACTIVE", "DONE"]);
+export const studyReasonCode = pgEnum("study_reason_code", ["BUSY", "TIRED", "AWAY", "OTHER"]);
 
 // ============================================================
 // Bảng (định nghĩa hết trước — mọi relations() dồn xuống cuối file
@@ -138,6 +143,8 @@ export const routines = pgTable("routines", {
   name: varchar("name", { length: 255 }).notNull(),
   kind: routineKind("kind").notNull().default("CHECK"),
   weekdays: integer("weekdays").array().notNull().default([1, 2, 3, 4, 5, 6, 7]),
+  // Chỉ dùng với kind = STUDY: môn học mà việc này theo dõi.
+  studySubjectId: uuid("study_subject_id").references(() => studySubjects.id, { onDelete: "set null" }),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -310,6 +317,127 @@ export const skillScores = pgTable("skill_scores", {
   score: integer("score"), // 0-100, thang điểm nội bộ để so sánh tiến bộ theo thời gian
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ===== Trà Đình — Học tập (môn → khóa học → phần; nhật ký học theo ngày) =====
+
+// Môn học. review_weekdays: 1 = thứ Hai … 7 = Chủ nhật (ngày ôn mặc định = Chủ nhật).
+export const studySubjects = pgTable(
+  "study_subjects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    dailyGoalMinutes: integer("daily_goal_minutes"), // null = không đặt mục tiêu
+    videoMinutesPerDay: integer("video_minutes_per_day").notNull().default(40),
+    reviewWeekdays: integer("review_weekdays").array().notNull().default([7]),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("study_subjects_daily_goal_minutes_check", sql`${table.dailyGoalMinutes} between 1 and 1440`),
+    check("study_subjects_video_minutes_per_day_check", sql`${table.videoMinutesPerDay} between 1 and 1440`),
+  ]
+);
+
+export const studyCourses = pgTable("study_courses", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  subjectId: uuid("subject_id")
+    .notNull()
+    .references(() => studySubjects.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  instructor: varchar("instructor", { length: 255 }),
+  platform: varchar("platform", { length: 255 }),
+  url: text("url"),
+  status: studyCourseStatus("status").notNull().default("QUEUED"),
+  queuePosition: integer("queue_position"),
+  targetPrice: text("target_price"),
+  note: text("note"),
+  baselineFinishDate: date("baseline_finish_date"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const studyCourseSections = pgTable(
+  "study_course_sections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => studyCourses.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    durationMinutes: integer("duration_minutes").notNull(),
+    doneAt: timestamp("done_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("study_course_sections_course_id_position_key").on(table.courseId, table.position),
+    check("study_course_sections_duration_minutes_check", sql`${table.durationMinutes} >= 0`),
+  ]
+);
+
+// Mỗi dòng = một buổi học trong ngày (log_date theo giờ VN). Xoá khóa học thì giữ log (course_id → null).
+export const studyLogs = pgTable(
+  "study_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subjectId: uuid("subject_id")
+      .notNull()
+      .references(() => studySubjects.id, { onDelete: "cascade" }),
+    courseId: uuid("course_id").references(() => studyCourses.id, { onDelete: "set null" }),
+    logDate: date("log_date").notNull(),
+    minutes: integer("minutes").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("study_logs_subject_id_log_date_idx").on(table.subjectId, table.logDate),
+    check("study_logs_minutes_check", sql`${table.minutes} between 1 and 1440`),
+  ]
+);
+
+// Các phần được học trong một buổi; marked_done = buổi đó đánh dấu xong phần.
+export const studyLogSections = pgTable(
+  "study_log_sections",
+  {
+    logId: uuid("log_id")
+      .notNull()
+      .references(() => studyLogs.id, { onDelete: "cascade" }),
+    sectionId: uuid("section_id")
+      .notNull()
+      .references(() => studyCourseSections.id, { onDelete: "cascade" }),
+    markedDone: boolean("marked_done").notNull().default(false),
+  },
+  (table) => [primaryKey({ columns: [table.logId, table.sectionId], name: "study_log_sections_log_id_section_id_pk" })]
+);
+
+// Lý do một ngày chưa đủ mục tiêu — tối đa 1 lý do / môn / ngày.
+export const studyDayReasons = pgTable(
+  "study_day_reasons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subjectId: uuid("subject_id")
+      .notNull()
+      .references(() => studySubjects.id, { onDelete: "cascade" }),
+    reasonDate: date("reason_date").notNull(),
+    code: studyReasonCode("code").notNull(),
+    text: text("text"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("study_day_reasons_subject_id_reason_date_key").on(table.subjectId, table.reasonDate)]
+);
 
 // ===== Kiều Lâu — trung tâm thông báo + tin tức =====
 

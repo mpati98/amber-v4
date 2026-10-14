@@ -40,6 +40,7 @@ export function toRoutineView(r: RoutineRow, doneDates: string[], ref: string, e
     ...routineStats(r.weekdays, doneDates, ref),
     todayLog: extras.todayLog,
     // Chỉ routine WORKOUT có lastWorkout (null nếu chưa có buổi nào trước ngày tham chiếu).
+    // TODO(bước 3): kind STUDY chưa có nhánh riêng — tạm đi theo CHECK (không lastWorkout, streak từ routine_logs).
     ...(r.kind === "WORKOUT" ? { lastWorkout: extras.lastWorkout ?? null } : {}),
   };
 }

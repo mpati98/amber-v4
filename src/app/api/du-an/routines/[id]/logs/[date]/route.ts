@@ -33,6 +33,7 @@ export const PUT = withAuth(async (req, userId, { params }: RouteParams) => {
     return NextResponse.json({ error: "not_scheduled" }, { status: 400 });
   }
 
+  // TODO(bước 3): routine STUDY không dùng routine_logs — hiện rơi xuống nhánh CHECK (API chưa nhận kind STUDY nên chưa tới được).
   if (routine.kind === "WORKOUT") {
     if (parsedDate.data !== today) {
       return NextResponse.json({ error: "not_today" }, { status: 400 });
