@@ -90,8 +90,22 @@ export function buildOverview<C extends OverviewCourse>(input: OverviewInput<C>)
   });
   const weekMinutes = days.reduce((n, d) => n + d.minutes, 0);
   const weekGoal = dailyGoal * 7;
-  const remainingMinutes = Math.max(0, weekGoal - weekMinutes);
   const remainingDays = dayDiff(today, end) + 1;
+
+  // Theo từng môn có mục tiêu: môn học vượt không bù cho môn khác; mỗi ngày không bao giờ gợi ý ít hơn mục tiêu ngày.
+  const bySubject = goalSubjects.map((s) => {
+    const goal = s.dailyGoalMinutes ?? 0;
+    const minutes = weekDates.reduce((n, d) => n + minutesOn(s.id, d), 0);
+    const remaining = Math.max(0, goal * 7 - minutes);
+    return {
+      subjectId: s.id,
+      name: s.name,
+      goalMinutes: goal * 7,
+      minutes,
+      remainingMinutes: remaining,
+      suggestedPerDay: Math.max(goal, suggestedPerDay(remaining, remainingDays)),
+    };
+  });
 
   return {
     today,
@@ -100,16 +114,11 @@ export function buildOverview<C extends OverviewCourse>(input: OverviewInput<C>)
       end,
       goalMinutes: weekGoal,
       minutes: weekMinutes,
-      remainingMinutes,
+      remainingMinutes: bySubject.reduce((n, s) => n + s.remainingMinutes, 0),
       remainingDays,
-      suggestedPerDay: suggestedPerDay(remainingMinutes, remainingDays),
+      suggestedPerDay: bySubject.reduce((n, s) => n + s.suggestedPerDay, 0),
       days,
-      bySubject: goalSubjects.map((s) => ({
-        subjectId: s.id,
-        name: s.name,
-        goalMinutes: (s.dailyGoalMinutes ?? 0) * 7,
-        minutes: weekDates.reduce((n, d) => n + minutesOn(s.id, d), 0),
-      })),
+      bySubject,
     },
     subjects: subjects.map((s) => {
       const courses = coursesBySubject.get(s.id) ?? [];

@@ -62,9 +62,10 @@ async function main() {
     const remDays = 8 - isoWeekday(today);
     check("week: start/end thứ Hai–Chủ nhật, goal = 60×7", o.week.start === mon && o.week.end === sun && o.week.goalMinutes === 420 && o.week.days.length === 7, o.week);
     check("week: minutes = tổng log trong tuần, remaining/remainingDays/suggestedPerDay", o.week.minutes === inWeek && o.week.remainingMinutes === Math.max(0, 420 - inWeek) && o.week.remainingDays === remDays
-      && o.week.suggestedPerDay === (420 - inWeek > 0 ? Math.ceil((420 - inWeek) / remDays) : 0), o.week);
+      && o.week.suggestedPerDay === Math.max(60, Math.ceil(Math.max(0, 420 - inWeek) / remDays)), o.week);
     check("week.days theo ngày", o.week.days.every((d: Json) => d.minutes === (byDate[d.date] ?? 0) && d.goalMinutes === 60 && d.done === ((byDate[d.date] ?? 0) >= 60)), o.week.days);
-    check("week.bySubject chỉ môn có mục tiêu (goal×7)", o.week.bySubject.length === 1 && o.week.bySubject[0].subjectId === sid && o.week.bySubject[0].goalMinutes === 420 && o.week.bySubject[0].minutes === inWeek, o.week.bySubject);
+    check("week.bySubject chỉ môn có mục tiêu (goal×7)", o.week.bySubject.length === 1 && o.week.bySubject[0].subjectId === sid && o.week.bySubject[0].goalMinutes === 420 && o.week.bySubject[0].minutes === inWeek
+      && o.week.bySubject[0].remainingMinutes === Math.max(0, 420 - inWeek) && o.week.bySubject[0].suggestedPerDay === o.week.suggestedPerDay, o.week.bySubject);
     const sa = o.subjects.find((s: Json) => s.subjectId === sid), sb = o.subjects.find((s: Json) => s.subjectId === sidNoGoal);
     check("subjects theo position, môn không mục tiêu goal null", o.subjects.length === 2 && o.subjects[0].subjectId === sid && sb.goalMinutes === null && sb.today.done === false, o.subjects);
     check("subject.today: 20', 1 buổi, chưa done", sa.today.minutes === 20 && sa.today.logCount === 1 && sa.today.done === false && sa.today.reason === null, sa.today);

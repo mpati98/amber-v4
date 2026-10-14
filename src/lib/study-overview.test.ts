@@ -47,19 +47,40 @@ test("tuần: chỉ môn có mục tiêu; ngày ngoài tuần và môn không m�
   const w = buildOverview(base).week;
   assert.equal(w.goalMinutes, 90 * 7);
   assert.equal(w.minutes, 60 + 40 + 20 + 30);
-  assert.equal(w.remainingMinutes, 630 - 150);
+  assert.equal(w.remainingMinutes, (420 - 120) + (210 - 30)); // theo từng môn: A 300 + B 180
   assert.equal(w.remainingDays, 5); // T4..CN
-  assert.equal(w.suggestedPerDay, Math.ceil(480 / 5));
+  assert.equal(w.suggestedPerDay, 60 + 36); // A: max(60, ceil(300/5)=60); B: max(30, ceil(180/5)=36)
   assert.equal(w.days.length, 7);
   assert.deepEqual(w.days[0], { date: "2026-10-12", minutes: 90, goalMinutes: 90, done: true });
   assert.equal(w.days[1].done, false);
   assert.deepEqual(w.bySubject.map((s) => [s.subjectId, s.goalMinutes, s.minutes]), [["a", 420, 120], ["b", 210, 30]]);
+  assert.deepEqual(w.bySubject.map((s) => [s.remainingMinutes, s.suggestedPerDay]), [[300, 60], [180, 36]]);
 });
 
-test("đã vượt mục tiêu tuần → remaining 0, suggested 0", () => {
-  const o = buildOverview({ ...base, subjects: [{ id: "a", name: "Anh", dailyGoalMinutes: 10 }], totals: new Map([["a", new Map([["2026-10-12", 500]])]]) });
+test("1 môn học vượt đầu tuần: remaining 0 nhưng suggestedPerDay vẫn = mục tiêu ngày (60)", () => {
+  const o = buildOverview({ ...base, subjects: [{ id: "a", name: "Anh", dailyGoalMinutes: 60 }], totals: new Map([["a", new Map([["2026-10-12", 900]])]]) });
   assert.equal(o.week.remainingMinutes, 0);
-  assert.equal(o.week.suggestedPerDay, 0);
+  assert.equal(o.week.suggestedPerDay, 60);
+  assert.deepEqual([o.week.bySubject[0].remainingMinutes, o.week.bySubject[0].suggestedPerDay], [0, 60]);
+});
+
+test("2 môn: A vượt, B thiếu → remaining chỉ tính phần thiếu của B; A không bù cho B", () => {
+  const o = buildOverview({
+    ...base,
+    subjects: [{ id: "a", name: "A", dailyGoalMinutes: 60 }, { id: "b", name: "B", dailyGoalMinutes: 60 }],
+    totals: new Map([["a", new Map([["2026-10-12", 2000]])], ["b", new Map([["2026-10-12", 60]])]]),
+  });
+  assert.equal(o.week.remainingMinutes, 420 - 60); // chỉ B
+  assert.equal(o.week.suggestedPerDay, 60 + Math.max(60, Math.ceil(360 / 5))); // A 60 + B 72
+  assert.deepEqual(o.week.bySubject.map((s) => [s.subjectId, s.remainingMinutes, s.suggestedPerDay]), [["a", 0, 60], ["b", 360, 72]]);
+});
+
+test("môn không mục tiêu không ảnh hưởng remaining / suggestedPerDay", () => {
+  const withN = buildOverview({ ...base, subjects: [{ id: "a", name: "A", dailyGoalMinutes: 60 }, { id: "n", name: "n", dailyGoalMinutes: null }], totals: new Map([["a", new Map([["2026-10-12", 60]])], ["n", new Map([["2026-10-12", 9999]])]]) });
+  const without = buildOverview({ ...base, subjects: [{ id: "a", name: "A", dailyGoalMinutes: 60 }], totals: new Map([["a", new Map([["2026-10-12", 60]])]]) });
+  assert.equal(withN.week.remainingMinutes, without.week.remainingMinutes);
+  assert.equal(withN.week.suggestedPerDay, without.week.suggestedPerDay);
+  assert.equal(withN.week.bySubject.length, 1);
 });
 
 test("chủ nhật: remainingDays = 1", () => {
