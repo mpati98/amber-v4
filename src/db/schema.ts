@@ -777,3 +777,46 @@ export const publicationsRelations = relations(publications, ({ many }) => ({
 export const highlightsRelations = relations(highlights, ({ one }) => ({
   publication: one(publications, { fields: [highlights.publicationId], references: [publications.id] }),
 }));
+
+// ----- Học tập (Trà Đình) -----
+
+export const studySubjectsRelations = relations(studySubjects, ({ one, many }) => ({
+  user: one(users, { fields: [studySubjects.userId], references: [users.id] }),
+  courses: many(studyCourses),
+  logs: many(studyLogs),
+  dayReasons: many(studyDayReasons),
+  routines: many(routines),
+}));
+
+export const studyCoursesRelations = relations(studyCourses, ({ one, many }) => ({
+  user: one(users, { fields: [studyCourses.userId], references: [users.id] }),
+  subject: one(studySubjects, { fields: [studyCourses.subjectId], references: [studySubjects.id] }),
+  sections: many(studyCourseSections),
+  logs: many(studyLogs),
+}));
+
+export const studyCourseSectionsRelations = relations(studyCourseSections, ({ one, many }) => ({
+  course: one(studyCourses, { fields: [studyCourseSections.courseId], references: [studyCourses.id] }),
+  logSections: many(studyLogSections),
+}));
+
+export const studyLogsRelations = relations(studyLogs, ({ one, many }) => ({
+  user: one(users, { fields: [studyLogs.userId], references: [users.id] }),
+  subject: one(studySubjects, { fields: [studyLogs.subjectId], references: [studySubjects.id] }),
+  course: one(studyCourses, { fields: [studyLogs.courseId], references: [studyCourses.id] }),
+  sections: many(studyLogSections),
+}));
+
+export const studyLogSectionsRelations = relations(studyLogSections, ({ one }) => ({
+  log: one(studyLogs, { fields: [studyLogSections.logId], references: [studyLogs.id] }),
+  section: one(studyCourseSections, { fields: [studyLogSections.sectionId], references: [studyCourseSections.id] }),
+}));
+
+export const studyDayReasonsRelations = relations(studyDayReasons, ({ one }) => ({
+  user: one(users, { fields: [studyDayReasons.userId], references: [users.id] }),
+  subject: one(studySubjects, { fields: [studyDayReasons.subjectId], references: [studySubjects.id] }),
+}));
+
+export const routinesRelations = relations(routines, ({ one }) => ({
+  studySubject: one(studySubjects, { fields: [routines.studySubjectId], references: [studySubjects.id] }),
+}));
