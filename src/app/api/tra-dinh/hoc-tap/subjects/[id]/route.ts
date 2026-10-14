@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { routines, studySubjects } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
@@ -21,6 +21,16 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
   if (!parsed.success) return invalidBody(parsed.error);
   const d = parsed.data;
   if (Object.keys(d).length === 0) return badRequest("empty_patch");
+
+  // Bỏ mục tiêu ngày khi còn routine STUDY theo dõi môn này: routine không còn gì để tính.
+  if (d.dailyGoalMinutes === null) {
+    const [study] = await db
+      .select({ id: routines.id })
+      .from(routines)
+      .where(and(eq(routines.studySubjectId, subject.id), eq(routines.kind, "STUDY"), isNull(routines.archivedAt)))
+      .limit(1);
+    if (study) return NextResponse.json({ error: "subject_in_use" }, { status: 409 });
+  }
 
   const [updated] = await db
     .update(studySubjects)

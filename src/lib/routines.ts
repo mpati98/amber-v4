@@ -1,8 +1,11 @@
-import { and, asc, between, desc, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, asc, between, desc, eq, inArray, isNull, lt, ne } from "drizzle-orm";
+import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { routineLogs, routines, workoutExercises } from "@/db/schema";
+import { findOwnedSubject } from "@/lib/study-courses";
 import { addDaysIso } from "@/lib/deadline-alert";
 import { routineStats, STREAK_LOOKBACK_DAYS } from "@/lib/routine-stats";
+import { studyRoutineExtras } from "@/lib/study-days";
 
 type RoutineRow = typeof routines.$inferSelect;
 type ExerciseRow = typeof workoutExercises.$inferSelect;
@@ -40,7 +43,6 @@ export function toRoutineView(r: RoutineRow, doneDates: string[], ref: string, e
     ...routineStats(r.weekdays, doneDates, ref),
     todayLog: extras.todayLog,
     // Chỉ routine WORKOUT có lastWorkout (null nếu chưa có buổi nào trước ngày tham chiếu).
-    // TODO(bước 3): kind STUDY chưa có nhánh riêng — tạm đi theo CHECK (không lastWorkout, streak từ routine_logs).
     ...(r.kind === "WORKOUT" ? { lastWorkout: extras.lastWorkout ?? null } : {}),
   };
 }
@@ -58,8 +60,22 @@ async function exercisesByLog(logIds: string[]) {
   return map;
 }
 
-/** Gắn thống kê cho nhiều routine bằng 1 truy vấn log (chỉ cửa sổ nhìn lùi cần cho streak). */
+/**
+ * Gắn thống kê cho nhiều routine. CHECK/WORKOUT: 1 truy vấn routine_logs (chỉ cửa sổ nhìn lùi cần cho streak).
+ * STUDY không dùng routine_logs: tổng phút học theo ngày (study_logs) ≥ mục tiêu của môn mới tính là đã làm.
+ */
 export async function routineViews(rows: RoutineRow[], ref: string) {
+  const studyRows = rows.filter((r) => r.kind === "STUDY");
+  const study = await studyRoutineExtras(db, studyRows, ref, STREAK_LOOKBACK_DAYS);
+  const plain = new Map((await logRoutineViews(rows.filter((r) => r.kind !== "STUDY"), ref)).map((v) => [v.id, v]));
+  return rows.map((r) => {
+    if (r.kind !== "STUDY") return plain.get(r.id)!;
+    const { doneDates, ...extra } = study.get(r.id)!;
+    return { ...toRoutineView(r, doneDates, ref), ...extra };
+  });
+}
+
+async function logRoutineViews(rows: RoutineRow[], ref: string) {
   if (rows.length === 0) return [];
   const logs = await db
     .select({ id: routineLogs.id, routineId: routineLogs.routineId, logDate: routineLogs.logDate, durationMinutes: routineLogs.durationMinutes })
@@ -116,4 +132,29 @@ export async function findOwnedRoutine(id: string, userId: string): Promise<Rout
     where: and(eq(routines.id, id), eq(routines.userId, userId), isNull(routines.archivedAt)),
   });
   return row ?? null;
+}
+
+/**
+ * Kiểm tra môn học gắn vào routine STUDY: phải của user (404), có mục tiêu ngày (400 goal_missing), mỗi môn
+ * tối đa 1 routine STUDY (409 study_routine_exists; [exceptRoutineId] bỏ qua chính routine đang sửa).
+ * Trả response lỗi, hoặc null nếu hợp lệ.
+ */
+export async function checkStudySubject(subjectId: string, userId: string, exceptRoutineId?: string): Promise<NextResponse | null> {
+  const subject = await findOwnedSubject(db, subjectId, userId);
+  if (!subject) return NextResponse.json({ error: "subject_not_found" }, { status: 404 });
+  if (subject.dailyGoalMinutes === null) return NextResponse.json({ error: "goal_missing" }, { status: 400 });
+  const [existing] = await db
+    .select({ id: routines.id })
+    .from(routines)
+    .where(
+      and(
+        eq(routines.studySubjectId, subject.id),
+        eq(routines.kind, "STUDY"),
+        isNull(routines.archivedAt),
+        exceptRoutineId ? ne(routines.id, exceptRoutineId) : undefined
+      )
+    )
+    .limit(1);
+  if (existing) return NextResponse.json({ error: "study_routine_exists" }, { status: 409 });
+  return null;
 }

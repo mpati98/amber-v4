@@ -11,6 +11,7 @@ import { vnToday } from "@/lib/vn-time";
 
 type RouteParams = { params: Promise<{ id: string; date: string }> };
 
+const studyAuto = () => NextResponse.json({ error: "study_routine_auto" }, { status: 400 });
 const notFound = () => NextResponse.json({ error: "routine_not_found" }, { status: 404 });
 
 // CHECK: đánh dấu đã làm (idempotent), không cho ngày tương lai, không cho ngày không đến hạn.
@@ -20,6 +21,9 @@ export const PUT = withAuth(async (req, userId, { params }: RouteParams) => {
   const { id, date } = await params;
   const routine = await findOwnedRoutine(id, userId);
   if (!routine) return notFound();
+
+  // STUDY tự tính từ nhật ký học của môn, không ghi tay.
+  if (routine.kind === "STUDY") return studyAuto();
 
   const parsedDate = dateString.safeParse(date);
   if (!parsedDate.success) {
@@ -33,7 +37,6 @@ export const PUT = withAuth(async (req, userId, { params }: RouteParams) => {
     return NextResponse.json({ error: "not_scheduled" }, { status: 400 });
   }
 
-  // TODO(bước 3): routine STUDY không dùng routine_logs — hiện rơi xuống nhánh CHECK (API chưa nhận kind STUDY nên chưa tới được).
   if (routine.kind === "WORKOUT") {
     if (parsedDate.data !== today) {
       return NextResponse.json({ error: "not_today" }, { status: 400 });
@@ -72,6 +75,7 @@ export const DELETE = withAuth(async (_req, userId, { params }: RouteParams) => 
   const routine = await findOwnedRoutine(id, userId);
   if (!routine) return notFound();
 
+  if (routine.kind === "STUDY") return studyAuto();
   const parsedDate = dateString.safeParse(date);
   if (!parsedDate.success) {
     return NextResponse.json({ error: parsedDate.error.flatten() }, { status: 400 });

@@ -8,6 +8,5 @@ export const weekdaysSchema = z
 
 export const ALL_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
 
-/** Loại việc hằng ngày: CHECK = tick tay; WORKOUT = ghi buổi tập. */
-// TODO(bước 3): enum DB đã có STUDY nhưng API chưa nhận — mở ở bước 3.
-export const routineKindSchema = z.enum(["CHECK", "WORKOUT"]);
+/** Loại việc hằng ngày: CHECK = tick tay; WORKOUT = ghi buổi tập; STUDY = tự tính từ nhật ký học của một môn. */
+export const routineKindSchema = z.enum(["CHECK", "WORKOUT", "STUDY"]);

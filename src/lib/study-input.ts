@@ -65,3 +65,32 @@ export const putSectionsSchema = z.union([
   z.array(sectionInputSchema).max(MAX_SECTIONS),
   z.object({ sections: z.array(sectionInputSchema).max(MAX_SECTIONS) }).transform((o) => o.sections),
 ]);
+
+// ----- Nhật ký học (study_logs) và lý do -----
+
+export const reasonCodeSchema = z.enum(["BUSY", "TIRED", "AWAY", "OTHER"]);
+const reasonText = z.string().trim().max(500).nullable().optional();
+
+export const stopForTodaySchema = z.object({ code: reasonCodeSchema, text: reasonText });
+export const reasonBodySchema = z.object({ code: reasonCodeSchema, text: reasonText });
+
+export const logSectionInputSchema = z.object({
+  sectionId: z.string().uuid(),
+  markDone: z.boolean().optional(),
+});
+
+export const createLogSchema = z.object({
+  subjectId: z.string(),
+  courseId: z.string().nullable().optional(),
+  minutes,
+  sections: z.array(logSectionInputSchema).max(MAX_SECTIONS).optional(),
+  note: z.string().trim().max(2000).nullable().optional(),
+  stopForToday: stopForTodaySchema.optional(),
+});
+
+export const patchLogSchema = z.object({
+  minutes: minutes.optional(),
+  sections: z.array(logSectionInputSchema).max(MAX_SECTIONS).optional(),
+  note: z.string().trim().max(2000).nullable().optional(),
+  stopForToday: stopForTodaySchema.optional(),
+});

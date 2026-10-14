@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { routines } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
-import { listRoutines, routineViews } from "@/lib/routines";
+import { checkStudySubject, listRoutines, routineViews } from "@/lib/routines";
 import { ALL_WEEKDAYS, routineKindSchema, weekdaysSchema } from "@/lib/routine-input";
 import { dateString } from "@/lib/project-input";
 import { vnToday } from "@/lib/vn-time";
@@ -12,6 +12,8 @@ const createRoutineSchema = z.object({
   name: z.string().min(1).max(255),
   weekdays: weekdaysSchema.optional(),
   kind: routineKindSchema.optional(),
+  // Chỉ dùng (và bắt buộc) với kind STUDY.
+  studySubjectId: z.string().optional(),
 });
 
 export const GET = withAuth(async (req, userId) => {
@@ -28,9 +30,18 @@ export const POST = withAuth(async (req, userId) => {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
+  const kind = parsed.data.kind ?? "CHECK";
+  const { studySubjectId } = parsed.data;
+  if (kind === "STUDY") {
+    if (!studySubjectId) return NextResponse.json({ error: "study_subject_required" }, { status: 400 });
+    const error = await checkStudySubject(studySubjectId, userId);
+    if (error) return error;
+  } else if (studySubjectId !== undefined) {
+    return NextResponse.json({ error: "study_subject_not_allowed" }, { status: 400 });
+  }
   const [created] = await db
     .insert(routines)
-    .values({ userId, name: parsed.data.name, weekdays: parsed.data.weekdays ?? ALL_WEEKDAYS, kind: parsed.data.kind ?? "CHECK" })
+    .values({ userId, name: parsed.data.name, weekdays: parsed.data.weekdays ?? ALL_WEEKDAYS, kind, ...(kind === "STUDY" ? { studySubjectId } : {}) })
     .returning();
   const [view] = await routineViews([created], vnToday());
   return NextResponse.json(view, { status: 201 });

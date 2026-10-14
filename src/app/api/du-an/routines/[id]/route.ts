@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { routineLogs, routines } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
-import { findOwnedRoutine, routineViews } from "@/lib/routines";
+import { checkStudySubject, findOwnedRoutine, routineViews } from "@/lib/routines";
 import { routineKindSchema, weekdaysSchema } from "@/lib/routine-input";
 import { vnToday } from "@/lib/vn-time";
 
@@ -12,6 +12,8 @@ const patchRoutineSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   weekdays: weekdaysSchema.optional(),
   kind: routineKindSchema.optional(),
+  // Đổi môn của routine STUDY.
+  studySubjectId: z.string().optional(),
 });
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -29,6 +31,17 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
   }
   if (Object.keys(parsed.data).length === 0) {
     return NextResponse.json({ error: "empty patch" }, { status: 400 });
+  }
+  // Vào/ra khỏi STUDY là đổi bản chất routine (log tay ↔ tự tính từ nhật ký học) → khoá hẳn.
+  if (parsed.data.kind !== undefined && parsed.data.kind !== routine.kind && (parsed.data.kind === "STUDY" || routine.kind === "STUDY")) {
+    return NextResponse.json({ error: "kind_locked" }, { status: 409 });
+  }
+  if (parsed.data.studySubjectId !== undefined) {
+    if (routine.kind !== "STUDY") return NextResponse.json({ error: "study_subject_not_allowed" }, { status: 400 });
+    if (parsed.data.studySubjectId !== routine.studySubjectId) {
+      const error = await checkStudySubject(parsed.data.studySubjectId, userId, routine.id);
+      if (error) return error;
+    }
   }
   // Đã có log thì không đổi loại: log CHECK và log WORKOUT có dữ liệu khác nhau.
   if (parsed.data.kind !== undefined && parsed.data.kind !== routine.kind) {
