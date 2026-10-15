@@ -6,7 +6,7 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { studyCourses, studyLogs, studySubjects, users } from "@/db/schema";
+import { routines, studyCourses, studyLogs, studySubjects, users } from "@/db/schema";
 import { signAccessToken } from "@/lib/mobile-auth";
 import { addDaysIso } from "@/lib/deadline-alert";
 import { isoWeekday } from "@/lib/routine-stats";
@@ -30,7 +30,7 @@ const call = async (tok: string | null, method: string, path: string, body?: unk
 
 async function main() {
   const today = vnToday();
-  const d1 = addDaysIso(today, -1), d2 = addDaysIso(today, -2), d3 = addDaysIso(today, -3);
+  const d1 = addDaysIso(today, -1), d2 = addDaysIso(today, -2), d3 = addDaysIso(today, -3), tomorrow = addDaysIso(today, 1);
   const mondayOf = (d: string) => addDaysIso(d, 1 - isoWeekday(d));
   const mon = mondayOf(today), sun = addDaysIso(mon, 6);
   const mk = async () => (await db.insert(users).values({ email: `study-overview-e2e-${randomUUID()}@example.invalid`, passwordHash: "x" }).returning({ id: users.id }))[0];
@@ -129,6 +129,23 @@ async function main() {
     check("stats range sai → 400", (await H("GET", "/stats?range=14")).s === 400);
     check("stats môn user khác → 404", (await H("GET", `/stats?subjectId=${sid}`, undefined, B)).s === 404);
     check("stats user khác không thấy dữ liệu", (await H("GET", "/stats?range=all", undefined, B)).j.totalMinutes === 0);
+
+    // ---- needsReason của lịch ----
+    const nrDays = (await H("GET", `/schedule?subjectId=${sid}&from=${d3}&to=${to}`)).j.days as Json[];
+    check("needsReason: môn mới tạo hôm nay → ngày quá khứ trước ngày tạo đều false, có trường ở mọi ngày", nrDays.every((d) => typeof d.needsReason === "boolean" && d.needsReason === false), nrDays.map((d) => [d.date, d.needsReason]));
+    await db.update(studySubjects).set({ createdAt: new Date(Date.now() - 40 * 86_400_000) }).where(eq(studySubjects.id, sid));
+    const old = (await H("GET", `/schedule?subjectId=${sid}&from=${addDaysIso(today, -25)}&to=${tomorrow}`)).j.days as Json[];
+    const nr = (d: string) => old.find((x) => x.date === d)?.needsReason;
+    check("needsReason: 25 ngày trước thiếu phút, chưa có lý do → true (không giới hạn 14 ngày)", nr(addDaysIso(today, -25)) === true && nr(addDaysIso(today, -20)) === true && nr(addDaysIso(today, -10)) === true, old.map((d) => [d.date, d.needsReason]));
+    check("needsReason: đủ mục tiêu / đã có lý do / hôm nay / dự kiến → false", nr(d3) === false && nr(d2) === false && nr(d1) === false && nr(today) === false && nr(tomorrow) === false, [nr(d3), nr(d2), nr(d1), nr(today), nr(tomorrow)]);
+    const rt = await call(A, "POST", "/../../du-an/routines", { name: "Học", kind: "STUDY", studySubjectId: sid });
+    check("tạo routine STUDY cho môn", rt.s === 201, rt);
+    const afterRoutine = (await H("GET", `/schedule?subjectId=${sid}&from=${addDaysIso(today, -25)}&to=${today}`)).j.days as Json[];
+    check("needsReason: có routine STUDY mới tạo → ngày trước ngày tạo routine đều false", afterRoutine.every((d) => d.needsReason === false), afterRoutine.filter((d) => d.needsReason).map((d) => d.date));
+    // Lùi ngày tạo routine 30 ngày và chỉ đến hạn thứ Hai (1): chỉ thứ Hai thiếu mới true.
+    await db.update(routines).set({ createdAt: new Date(Date.now() - 30 * 86_400_000), weekdays: [1] }).where(eq(routines.id, rt.j.id));
+    const monday = (await H("GET", `/schedule?subjectId=${sid}&from=${addDaysIso(today, -25)}&to=${today}`)).j.days as Json[];
+    check("needsReason: ngày không thuộc routine.weekdays → false, thứ Hai thiếu → true", monday.filter((d) => d.needsReason).length > 0 && monday.filter((d) => d.needsReason).every((d) => isoWeekday(d.date) === 1), monday.filter((d) => d.needsReason).map((d) => d.date));
 
     // chỉ đọc: gọi route không làm đổi số khóa/log
     check("chỉ đọc: số log không đổi sau khi gọi các route", (await db.select({ id: studyLogs.id }).from(studyLogs).where(eq(studyLogs.subjectId, sid))).length === 4);

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { and, between, eq } from "drizzle-orm";
+import { and, between, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { studyCourses, studyDayReasons, studyLogs } from "@/db/schema";
+import { routines, studyCourses, studyDayReasons, studyLogs } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
 import { dateString } from "@/lib/project-input";
 import { badRequest } from "@/lib/study-input";
@@ -45,12 +45,20 @@ export const GET = withAuth(async (req, userId) => {
   // Khoảng nằm hoàn toàn trong quá khứ thì không chạy forecast; forecast luôn bắt đầu từ hôm nay.
   const forecastDays = needsForecast(today, to.data) ? (await forecastSubject(db, subject)).days : [];
 
+  const [studyRoutine] = await db
+    .select({ createdAt: routines.createdAt, weekdays: routines.weekdays })
+    .from(routines)
+    .where(and(eq(routines.studySubjectId, subject.id), eq(routines.kind, "STUDY"), isNull(routines.archivedAt)))
+    .limit(1);
+
   return NextResponse.json(
     buildSchedule({
       today,
       from: from.data,
       to: to.data,
       goalMinutes: subject.dailyGoalMinutes,
+      subjectCreatedDate: vnToday(subject.createdAt),
+      routine: studyRoutine ? { createdDate: vnToday(studyRoutine.createdAt), weekdays: studyRoutine.weekdays } : null,
       reviewWeekdays: subject.reviewWeekdays,
       totals,
       reasons: new Map(reasonRows.map((r) => [r.d, { code: r.code, text: r.text }])),

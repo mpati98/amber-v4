@@ -98,3 +98,32 @@ test("môn không mục tiêu: done false, extraMinutes 0", () => {
   assert.equal(d.extraMinutes, 0);
   assert.equal(d.goalMinutes, null);
 });
+
+test("needsReason: chỉ ngày đã qua thiếu phút và chưa có lý do; hôm nay / planned luôn false", () => {
+  const r = buildSchedule(input({ reasons: new Map(), totals: new Map([["2026-10-12", 90], ["2026-10-13", 30]]) }));
+  assert.equal(day(r, "2026-10-12").needsReason, false, "đủ mục tiêu");
+  assert.equal(day(r, "2026-10-13").needsReason, true, "thiếu và chưa có lý do");
+  assert.equal(day(r, "2026-10-14").needsReason, false, "hôm nay chưa tính");
+  assert.equal(day(r, "2026-10-16").needsReason, false, "dự kiến");
+  const withReason = buildSchedule(input()); // fixture mặc định đã có lý do cho 10-13
+  assert.equal(day(withReason, "2026-10-13").needsReason, false);
+});
+
+test("needsReason: trước ngày tạo môn / routine, ngày không đến hạn của routine → false", () => {
+  const base = { reasons: new Map(), totals: new Map<string, number>() };
+  const afterSubject = buildSchedule(input({ ...base, subjectCreatedDate: "2026-10-13" }));
+  assert.equal(day(afterSubject, "2026-10-12").needsReason, false, "trước ngày tạo môn");
+  assert.equal(day(afterSubject, "2026-10-13").needsReason, true);
+  const withRoutine = buildSchedule(input({ ...base, routine: { createdDate: "2026-10-01", weekdays: [1, 3] } })); // T2, T4
+  assert.equal(day(withRoutine, "2026-10-12").needsReason, true, "thứ Hai đến hạn");
+  assert.equal(day(withRoutine, "2026-10-13").needsReason, false, "thứ Ba không đến hạn của routine");
+  const routineLater = buildSchedule(input({ ...base, subjectCreatedDate: "2026-09-01", routine: { createdDate: "2026-10-13", weekdays: [1, 2, 3, 4, 5, 6, 7] } }));
+  assert.equal(day(routineLater, "2026-10-12").needsReason, false, "trước ngày tạo routine");
+});
+
+test("needsReason: 20 ngày trước vẫn tính (khoảng lịch dài), môn không mục tiêu luôn false", () => {
+  const r = buildSchedule(input({ from: "2026-09-20", to: "2026-09-26", today: "2026-10-14", reasons: new Map(), totals: new Map(), logs: [], forecastDays: [] }));
+  assert.ok(r.days.every((d) => d.needsReason === true));
+  const noGoal = buildSchedule(input({ goalMinutes: null, reasons: new Map() }));
+  assert.ok(noGoal.days.every((d) => d.needsReason === false));
+});
