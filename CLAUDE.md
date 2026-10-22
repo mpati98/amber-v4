@@ -219,5 +219,9 @@ Bảng `agent_logs` (migration 0006) lưu nhật ký lượt gọi mô hình c�
 dòng), `GET /export` (brain kéo về, dòng đầy đủ). Mọi route `withAuth` và lọc theo `userId`; dòng của user khác = 404.
 Không có cơ chế tự xóa. Quy tắc "mẫu đủ điều kiện" ở `lib/brain-logs-db.ts` PHẢI khớp `scripts/export_dataset.py` của
 amber-brain; `npm run test:brain-logs` kiểm bằng chung `amber-brain/tests/fixtures/eligibility.json`.
+Cột `route` (`LOCAL`|`CLOUD`, CHECK ở DB, null = dòng cũ/brain chưa gửi) và `cloud_model` (migration **0009**, chỉ thêm cột nên bản code cũ vẫn chạy): ingest nhận
+`route`/`cloudModel` tùy chọn (thiếu = không đổi gì; `route` sai giá trị bị ép về null (dòng vẫn được giữ); trường lạ khác bị bỏ lặng lẽ vì schema
+không strict), `GET /` lọc `?route=LOCAL|CLOUD` (sai → 400 `invalid_query`) và trả cả hai trường, `/[id]` và `/export` cũng trả. **Thứ tự triển khai: migrate TRƯỚC, push
+SAU** (code mới select cột `route`; chạy trên DB chưa có cột thì mọi route brain-logs 500).
 Ingest không bao giờ đặt `excludeFromTraining` và chỉ đổi outcome khi `outcomeAt` mới hơn bản đang có. Kiểm thử tích hợp trên dev branch (cần `npm run dev`): `npm run test:brain-logs` (từ chối chạy nếu DB là production).
 

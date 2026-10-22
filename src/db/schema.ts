@@ -642,10 +642,15 @@ export const agentLogs = pgTable(
     correctedOutput: jsonb("corrected_output"),
     correctedAt: timestamp("corrected_at", { withTimezone: true }),
     excludeFromTraining: boolean("exclude_from_training").notNull().default(false),
+    // Tuyến xử lý của lượt: LOCAL (mô hình local tự xử lý) | CLOUD (hỏi Groq). null = dòng cũ / brain chưa gửi trường này.
+    route: text("route"),
+    cloudModel: text("cloud_model"), // model cloud đã dùng (chỉ có ý nghĩa khi route = CLOUD)
   },
   (table) => [
     index("agent_logs_user_created_at_idx").on(table.userId, table.createdAt),
     index("agent_logs_user_outcome_idx").on(table.userId, table.outcome),
+    index("agent_logs_user_route_created_at_idx").on(table.userId, table.route, table.createdAt),
+    check("agent_logs_route_check", sql`${table.route} in ('LOCAL', 'CLOUD')`), // null vượt qua CHECK: dòng cũ vẫn hợp lệ
   ]
 );
 

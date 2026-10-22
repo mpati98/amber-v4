@@ -2,8 +2,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  decodeCursor, encodeCursor, feedbackSchema, ingestLogSchema, parseListQuery, patchSchema, shouldApplyOutcome, vnDayStart,
+  decodeCursor, encodeCursor, feedbackSchema, ingestLogSchema, parseListQuery, patchSchema, ROUTES, shouldApplyOutcome, vnDayStart,
 } from "./brain-logs";
+import { fullColumns, summaryColumns } from "./brain-logs-db";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
@@ -65,3 +66,87 @@ test("feedback chỉ accepted/rejected; PATCH chỉ excludeFromTraining", () => 
     assert.equal(patchSchema.safeParse(bad).success, false, JSON.stringify(bad));
   }
 });
+
+// --- route / cloudModel (migration 0009) -----------------------------------------------------------------------
+
+const BASE = { id: ID, createdAt: "2026-10-10T10:00:00+00:00", agent: "chat", userInput: "hi" };
+
+test("ingest: dòng KHÔNG có route/cloudModel (brain đang chạy production) vẫn nhận y như trước", () => {
+  // đúng hình dạng brain đẩy hôm nay: mọi cột đều có mặt, giá trị thiếu là null, không có route/cloudModel
+  const live = { ...BASE, sessionId: null, turnIndex: 1, source: "agent", lang: "en", modelName: "amber-gemma4", adapterVersion: "base",
+    promptVersion: "gemma-v1", retrievedContext: null, messages: [{ role: "user", content: "hi" }], tools: null, rawOutput: "{}",
+    parsedOutput: { action: "chitchat" }, parseOk: true, toolName: null, toolArgs: null, toolResult: { route: "CLOUD" }, toolOk: null,
+    error: null, entityType: null, entityId: null, latencyMs: 12, promptTokens: 5, completionTokens: 3, outcome: "unknown",
+    outcomeAt: null, correctedOutput: null, correctedAt: null };
+  const r = ingestLogSchema.safeParse(live);
+  assert.ok(r.success);
+  if (r.success) {
+    assert.equal(r.data.route, undefined);      // thiếu = không đổi gì ở DB (update bỏ qua undefined, insert để null)
+    assert.equal(r.data.cloudModel, undefined);
+    assert.deepEqual(r.data.toolResult, { route: "CLOUD" }); // route cũ nằm trong toolResult vẫn là JSON thường
+  }
+  assert.ok(ingestLogSchema.safeParse(BASE).success);
+});
+
+test("ingest: nhận route LOCAL|CLOUD và cloudModel; null cũng được", () => {
+  for (const route of ROUTES) {
+    const r = ingestLogSchema.safeParse({ ...BASE, route, cloudModel: route === "CLOUD" ? "openai/gpt-oss-120b" : null });
+    assert.ok(r.success, route);
+    if (r.success) assert.equal(r.data.route, route);
+  }
+  const n = ingestLogSchema.safeParse({ ...BASE, route: null, cloudModel: null });
+  assert.ok(n.success && n.data.route === null && n.data.cloudModel === null);
+});
+
+test("ingest: route sai giá trị bị ép về null, dòng VẪN được nhận (không invalid, không 400)", () => {
+  for (const route of ["cloud", "local", "EDGE", "", "LOCAL ", 1, true, ["CLOUD"], { r: "CLOUD" }]) {
+    const r = ingestLogSchema.safeParse({ ...BASE, userInput: "giữ lại", route, cloudModel: "m" });
+    assert.ok(r.success, JSON.stringify(route));
+    if (r.success) {
+      assert.equal(r.data.route, null, JSON.stringify(route));
+      assert.equal(r.data.userInput, "giữ lại"); // phần còn lại của dòng không bị ảnh hưởng
+      assert.equal(r.data.cloudModel, "m");
+    }
+  }
+  // route hợp lệ / null / thiếu không bị đổi bởi catch
+  assert.equal(ingestLogSchema.parse({ ...BASE, route: "CLOUD" }).route, "CLOUD");
+  assert.equal(ingestLogSchema.parse({ ...BASE, route: "LOCAL" }).route, "LOCAL");
+  assert.equal(ingestLogSchema.parse({ ...BASE, route: null }).route, null);
+  assert.equal(ingestLogSchema.parse(BASE).route, undefined);
+  // cloudModel không nằm trong quy tắc ép: sai kiểu / quá dài vẫn làm hỏng dòng đó (chỉ dòng đó)
+  assert.equal(ingestLogSchema.safeParse({ ...BASE, route: "CLOUD", cloudModel: "x".repeat(257) }).success, false);
+  assert.equal(ingestLogSchema.safeParse({ ...BASE, route: "CLOUD", cloudModel: 5 }).success, false);
+});
+
+test("ingest: trường lạ không gây lỗi — bị bỏ lặng lẽ, kể cả khi trông giống trường mới", () => {
+  const r = ingestLogSchema.safeParse({ ...BASE, route: "CLOUD", serverHost: "api.duangmai.io.vn", server_host: "x", futureField: { a: 1 },
+    routes: "LOCAL", cloud_model: "snake-case-is-not-camel" });
+  assert.ok(r.success);
+  if (r.success) {
+    for (const k of ["serverHost", "server_host", "futureField", "routes", "cloud_model"]) assert.equal(k in r.data, false, k);
+    assert.equal(r.data.route, "CLOUD");
+    assert.equal(r.data.cloudModel, undefined); // snake_case không được tự map
+  }
+});
+
+test("danh sách: ?route= chỉ nhận LOCAL|CLOUD (đúng chữ hoa), không có thì không lọc", () => {
+  for (const route of ROUTES) {
+    const q = parseListQuery(new URLSearchParams(`route=${route}&agent=chat`));
+    assert.ok(q.ok && q.value.route === route && q.value.agent === "chat", route);
+  }
+  const none = parseListQuery(new URLSearchParams("agent=chat"));
+  assert.ok(none.ok && none.value.route === undefined);
+  const blank = parseListQuery(new URLSearchParams("route="));
+  assert.ok(blank.ok && blank.value.route === undefined); // giá trị rỗng bị bỏ như các bộ lọc khác
+  for (const bad of ["route=cloud", "route=local", "route=EDGE", "route=CLOUD,LOCAL", "route=null"]) {
+    assert.equal(parseListQuery(new URLSearchParams(bad)).ok, false, bad);
+  }
+});
+
+test("cột trả ra: danh sách tóm tắt, chi tiết và export đều có route + cloudModel; userId vẫn không lộ", () => {
+  for (const cols of [summaryColumns, fullColumns]) {
+    assert.ok("route" in cols && "cloudModel" in cols);
+    assert.equal("userId" in cols, false);
+  }
+});
+

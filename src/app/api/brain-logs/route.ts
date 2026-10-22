@@ -11,7 +11,7 @@ import { summaryColumns } from "@/lib/brain-logs-db";
 export const GET = withAuth(async (req, userId) => {
   const q = parseListQuery(req.nextUrl.searchParams);
   if (!q.ok) return NextResponse.json({ error: q.error }, { status: 400 });
-  const { agent, outcome, from, toExclusive, limit, cursor } = q.value;
+  const { agent, outcome, route, from, toExclusive, limit, cursor } = q.value;
 
   const rows = await db
     .select(summaryColumns)
@@ -21,6 +21,7 @@ export const GET = withAuth(async (req, userId) => {
         eq(agentLogs.userId, userId),
         agent ? eq(agentLogs.agent, agent) : undefined,
         outcome ? eq(agentLogs.outcome, outcome) : undefined,
+        route ? eq(agentLogs.route, route) : undefined,
         from ? gte(agentLogs.createdAt, from) : undefined,
         toExclusive ? lt(agentLogs.createdAt, toExclusive) : undefined,
         cursor

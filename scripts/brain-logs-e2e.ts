@@ -28,7 +28,8 @@ const msgs = [{ role: "system", content: "s" }, { role: "user", content: "chi 45
 async function main() {
   const [a] = await db.select({ id: users.id }).from(users).limit(1);
   const [b] = await db.insert(users).values({ email: `brainlogs-e2e-${randomUUID()}@example.invalid`, passwordHash: "x" }).returning({ id: users.id });
-  const ids: Record<string, string> = { exp: randomUUID(), chat: randomUUID(), cor: randomUUID(), rej: randomUUID(), fresh: randomUUID(), bad: randomUUID() };
+  const ids: Record<string, string> = { exp: randomUUID(), chat: randomUUID(), cor: randomUUID(), rej: randomUUID(), fresh: randomUUID(), bad: randomUUID(),
+    rLocal: randomUUID(), rCloud: randomUUID(), rLegacy: randomUUID(), rExtra: randomUUID(), rBad: randomUUID(), rCheck: randomUUID() };
   const idList: string[] = Object.values(ids);
   try {
     const A = await signAccessToken(a.id), B = await signAccessToken(b.id);
@@ -126,6 +127,74 @@ async function main() {
     do { const p = await call(A, "GET", "/export" + (c2 ? `?cursor=${c2}` : "")); ex2.push(...p.j.items.map((i: any) => i.id)); c2 = p.j.nextCursor; } while (c2);
     check("export: có exp/chat/fresh, không có rejected/bị loại", ex2.includes(ids.exp) && ex2.includes(ids.chat) && ex2.includes(ids.fresh) && !ex2.includes(ids.rej) && !ex2.includes(ids.cor), ex2.filter((i) => idList.includes(i)));
     const first = (await call(A, "GET", "/export")).j.items[0]; check("export trả dòng đầy đủ", "messages" in first && "tools" in first && !("userId" in first));
+
+    // --- route / cloudModel (migration 0009) ---
+    const rLocal = { id: ids.rLocal, createdAt: ago(0.30), agent: "chat", userInput: "hi local", messages: msgs, parsedOutput: { action: "news" }, route: "LOCAL" };
+    const rCloud = { id: ids.rCloud, createdAt: ago(0.29), agent: "chat", userInput: "hi cloud", messages: msgs, parsedOutput: { action: "chitchat" }, route: "CLOUD", cloudModel: "openai/gpt-oss-120b" };
+    // đúng hình dạng brain đẩy hôm nay: mọi trường có mặt (null khi thiếu), KHÔNG có route/cloudModel
+    const rLegacy = { id: ids.rLegacy, createdAt: ago(0.28), sessionId: null, turnIndex: 1, agent: "chat", source: "agent", lang: "en", modelName: "amber-gemma4", adapterVersion: "base",
+      promptVersion: "gemma-v1", userInput: "hi legacy", retrievedContext: null, messages: msgs, tools: null, rawOutput: "{}", parsedOutput: { action: "chitchat" }, parseOk: true,
+      toolName: null, toolArgs: null, toolResult: { route: "LOCAL" }, toolOk: null, error: null, entityType: null, entityId: null, latencyMs: 9, promptTokens: 4, completionTokens: 2,
+      outcome: "unknown", outcomeAt: null, correctedOutput: null, correctedAt: null };
+    const rExtra = { id: ids.rExtra, createdAt: ago(0.27), agent: "chat", userInput: "hi extra", messages: msgs, parsedOutput: { a: 1 }, route: "CLOUD", cloudModel: "m-extra",
+      serverHost: "api.duangmai.io.vn", futureField: { x: 1 } };
+    r = await call(A, "POST", "/ingest", { logs: [rLocal, rCloud, rLegacy, rExtra] });
+    check("route: ingest có/không có trường mới + trường lạ → lưu cả 4, không invalid", r.s === 200 && r.j.saved.length === 4 && r.j.invalid.length === 0 && r.j.conflicts.length === 0, r);
+    r = await call(A, "POST", "/ingest", { logs: [rLegacy, rLegacy] });
+    check("route: dòng kiểu brain hiện tại vẫn idempotent", r.s === 200 && r.j.saved.length === 2, r);
+
+    r = await call(A, "GET", `/${ids.rLocal}`); check("chi tiết: route LOCAL, cloudModel null", r.j.route === "LOCAL" && r.j.cloudModel === null, r.j);
+    r = await call(A, "GET", `/${ids.rCloud}`); check("chi tiết: route CLOUD + cloudModel", r.j.route === "CLOUD" && r.j.cloudModel === "openai/gpt-oss-120b", r.j);
+    r = await call(A, "GET", `/${ids.rLegacy}`); check("chi tiết: dòng không gửi route → null/null", r.j.route === null && r.j.cloudModel === null && r.j.toolResult?.route === "LOCAL", r.j);
+    r = await call(A, "GET", `/${ids.exp}`); check("chi tiết: dòng cũ trước migration → null/null", r.j.route === null && r.j.cloudModel === null, r.j);
+    r = await call(A, "GET", `/${ids.rExtra}`);
+    check("trường lạ không được lưu, route/cloudModel hợp lệ thì có", r.j.route === "CLOUD" && r.j.cloudModel === "m-extra" && !("serverHost" in r.j) && !("futureField" in r.j), r.j);
+
+    // route sai bị ép về null: dòng VẪN được lưu (không invalid, không 400), phần còn lại của dòng nguyên vẹn
+    for (const bad of ["cloud", "EDGE", "", 5]) {
+      await db.delete(agentLogs).where(eq(agentLogs.id, ids.rBad));
+      r = await call(A, "POST", "/ingest", { logs: [rLegacy, { ...rCloud, id: ids.rBad, route: bad, userInput: "route sai nhưng giữ dòng" }] });
+      check(`route sai ${JSON.stringify(bad)}: 200, cả 2 dòng saved, không invalid`, r.s === 200 && r.j.invalid.length === 0 && r.j.saved.length === 2 && r.j.saved.includes(ids.rBad), r);
+      r = await call(A, "GET", `/${ids.rBad}`);
+      check(`route sai ${JSON.stringify(bad)}: lưu route null, giữ cloudModel + nội dung`, r.s === 200 && r.j.route === null && r.j.cloudModel === "openai/gpt-oss-120b" && r.j.userInput === "route sai nhưng giữ dòng", r.j);
+    }
+
+    // gửi lại không kèm route không xóa route đã có; null tường minh thì xóa
+    const cloudNoRoute = Object.fromEntries(Object.entries(rCloud).filter(([k]) => k !== "route" && k !== "cloudModel"));
+    await call(A, "POST", "/ingest", { logs: [{ ...cloudNoRoute, userInput: "hi cloud (gửi lại)" }] });
+    r = await call(A, "GET", `/${ids.rCloud}`); check("gửi lại thiếu route: giữ route/cloudModel, nội dung vẫn cập nhật", r.j.route === "CLOUD" && r.j.cloudModel === "openai/gpt-oss-120b" && r.j.userInput === "hi cloud (gửi lại)", r.j);
+    await call(A, "POST", "/ingest", { logs: [{ ...rCloud, route: "LOCAL", cloudModel: null }] });
+    r = await call(A, "GET", `/${ids.rCloud}`); check("gửi lại có route mới: đổi theo (null tường minh xóa cloudModel)", r.j.route === "LOCAL" && r.j.cloudModel === null, r.j);
+    await call(A, "POST", "/ingest", { logs: [rCloud] });
+
+    // danh sách + bộ lọc
+    r = await call(A, "GET", "?limit=200");
+    const item = (id: string) => r.j.items.find((i: any) => i.id === id);
+    check("danh sách có route + cloudModel", item(ids.rCloud)?.route === "CLOUD" && item(ids.rCloud)?.cloudModel === "openai/gpt-oss-120b" && item(ids.rLegacy)?.route === null, item(ids.rCloud));
+    const mineRoute = async (q: string) => { const x = await call(A, "GET", q); return { s: x.s, items: x.j?.items ?? [] }; };
+    let f = await mineRoute("?route=CLOUD&limit=200");
+    check("lọc route=CLOUD: chỉ CLOUD (có cloud + extra, không local/legacy)", f.s === 200 && f.items.length > 0 && f.items.every((i: any) => i.route === "CLOUD") && [ids.rCloud, ids.rExtra].every((id) => f.items.some((i: any) => i.id === id)) && ![ids.rLocal, ids.rLegacy, ids.exp].some((id) => f.items.some((i: any) => i.id === id)), f.items.map((i: any) => i.route));
+    f = await mineRoute("?route=LOCAL&limit=200");
+    check("lọc route=LOCAL: chỉ LOCAL; dòng route null không lọt vào", f.s === 200 && f.items.every((i: any) => i.route === "LOCAL") && f.items.some((i: any) => i.id === ids.rLocal) && !f.items.some((i: any) => i.id === ids.rLegacy), f.items.map((i: any) => i.route));
+    f = await mineRoute("?route=CLOUD&agent=chat&outcome=unknown&limit=200"); check("lọc route kết hợp agent + outcome", f.items.length >= 2 && f.items.every((i: any) => i.route === "CLOUD" && i.agent === "chat" && i.outcome === "unknown"));
+    f = await mineRoute("?route=CLOUD&agent=expense&limit=200"); check("route=CLOUD + agent khác → không có dòng nào của test", !f.items.some((i: any) => [ids.rCloud, ids.rExtra].includes(i.id)));
+    const paged: string[] = []; let cur2: string | null = null;
+    do { const p = await call(A, "GET", `?route=CLOUD&limit=1${cur2 ? `&cursor=${cur2}` : ""}`); paged.push(...p.j.items.map((i: any) => i.id)); cur2 = p.j.nextCursor; } while (cur2);
+    check("lọc route + phân trang con trỏ: đủ, không trùng, toàn CLOUD", new Set(paged).size === paged.length && [ids.rCloud, ids.rExtra].every((id) => paged.includes(id)) && !paged.includes(ids.rLocal), paged.length);
+    for (const q of ["?route=cloud", "?route=EDGE", "?route=CLOUD,LOCAL", "?route=null"]) check(`lọc route sai ${q} → 400 invalid_query`, (await call(A, "GET", q)).s === 400 && (await call(A, "GET", q)).j.error === "invalid_query");
+    check("lọc route rỗng = không lọc", (await call(A, "GET", "?route=&limit=200")).j.items.some((i: any) => i.id === ids.rLegacy));
+    check("user B lọc route=CLOUD không thấy dòng của A", (await call(B, "GET", "?route=CLOUD")).j.items.length === 0);
+
+    // export trả route + cloudModel
+    const exAll: any[] = []; let cx: string | null = null;
+    do { const p = await call(A, "GET", "/export" + (cx ? `?cursor=${cx}` : "")); exAll.push(...p.j.items); cx = p.j.nextCursor; } while (cx);
+    const ee = (id: string) => exAll.find((i) => i.id === id);
+    check("export: route + cloudModel có mặt", ee(ids.rCloud)?.route === "CLOUD" && ee(ids.rCloud)?.cloudModel === "openai/gpt-oss-120b" && ee(ids.rLocal)?.route === "LOCAL" && ee(ids.rLegacy)?.route === null && "cloudModel" in ee(ids.rLegacy), ee(ids.rCloud));
+
+    // CHECK ở DB chặn giá trị lạ dù ai đó ghi thẳng
+    let rejected = false;
+    try { await db.insert(agentLogs).values({ id: ids.rCheck, userId: a.id, createdAt: new Date(), agent: "chat", route: "BOGUS" }); } catch { rejected = true; }
+    check("DB CHECK từ chối route ngoài LOCAL|CLOUD", rejected);
 
     // Luật "mẫu đủ điều kiện": CÙNG ca kiểm thử với amber-brain (tests/fixtures/eligibility.json) -> cùng số mẫu theo agent.
     const fx = JSON.parse(readFileSync(new URL("../../amber-brain/tests/fixtures/eligibility.json", import.meta.url), "utf8"));

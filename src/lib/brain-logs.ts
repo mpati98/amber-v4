@@ -5,6 +5,8 @@ import { z } from "zod";
 export const OUTCOMES = ["unknown", "accepted", "corrected", "rejected", "retried"] as const;
 export type Outcome = (typeof OUTCOMES)[number];
 export const FEEDBACK_OUTCOMES = ["accepted", "rejected"] as const;
+export const ROUTES = ["LOCAL", "CLOUD"] as const; // tuyến xử lý của lượt: local hay hỏi cloud (Groq)
+export type Route = (typeof ROUTES)[number];
 
 export const INGEST_MAX_ROWS = 25; // mỗi request: messages mỗi dòng có thể vài chục KB, Vercel giới hạn body ~4.5MB
 export const LIST_DEFAULT_LIMIT = 50;
@@ -14,7 +16,12 @@ export const UNKNOWN_GRACE_DAYS = 3; // dòng outcome unknown chỉ thành mẫu
 
 const isoDate = z.string().refine((s) => !Number.isNaN(Date.parse(s)), { message: "invalid date" });
 
-/** Một dòng log brain đẩy lên. Chỉ các trường này được nhận: userId lấy từ token, exclude_from_training do app đặt. */
+/**
+ * Một dòng log brain đẩy lên. Chỉ các trường này được nhận: userId lấy từ token, exclude_from_training do app đặt.
+ * Schema KHÔNG strict: trường lạ bị bỏ lặng lẽ (không lưu, không 400) nên brain mới gửi thêm trường không làm hỏng lô.
+ * route / cloudModel là tùy chọn (brain cũ không gửi): thiếu thì không đổi gì; route sai giá trị thì được ÉP VỀ null (dòng vẫn
+ * được giữ — mất một nhãn tuyến đỡ hơn mất cả dòng log, vì brain coi dòng `invalid` là đã xử lý xong và không gửi lại).
+ */
 export const ingestLogSchema = z.object({
   id: z.string().uuid(),
   createdAt: isoDate,
@@ -43,6 +50,8 @@ export const ingestLogSchema = z.object({
   latencyMs: z.number().int().nullish(),
   promptTokens: z.number().int().nullish(),
   completionTokens: z.number().int().nullish(),
+  route: z.enum(ROUTES).nullish().catch(null), // sai giá trị -> null (DB CHECK chỉ cho LOCAL|CLOUD|null)
+  cloudModel: z.string().max(256).nullish(),
   outcome: z.enum(OUTCOMES).default("unknown"),
   outcomeAt: isoDate.nullish(),
   correctedOutput: z.unknown().optional(),
@@ -88,6 +97,7 @@ export function vnDayStart(day: string): Date {
 export const listQuerySchema = z.object({
   agent: z.string().min(1).max(32).optional(),
   outcome: z.enum(OUTCOMES).optional(),
+  route: z.enum(ROUTES).optional(),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   limit: z.coerce.number().int().min(1).max(LIST_MAX_LIMIT).default(LIST_DEFAULT_LIMIT),
@@ -107,5 +117,5 @@ export function parseListQuery(sp: URLSearchParams) {
   if ((from && Number.isNaN(from.getTime())) || (toExclusive && Number.isNaN(toExclusive.getTime()))) {
     return { ok: false as const, error: "invalid_query" };
   }
-  return { ok: true as const, value: { agent: q.agent, outcome: q.outcome, from, toExclusive, limit: q.limit, cursor: cursor ?? undefined } };
+  return { ok: true as const, value: { agent: q.agent, outcome: q.outcome, route: q.route, from, toExclusive, limit: q.limit, cursor: cursor ?? undefined } };
 }

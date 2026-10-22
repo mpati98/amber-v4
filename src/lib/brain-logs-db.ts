@@ -11,6 +11,8 @@ export const summaryColumns = {
   source: agentLogs.source,
   userInput: agentLogs.userInput,
   outcome: agentLogs.outcome,
+  route: agentLogs.route,
+  cloudModel: agentLogs.cloudModel,
   toolName: agentLogs.toolName,
   toolOk: agentLogs.toolOk,
   parseOk: agentLogs.parseOk,
