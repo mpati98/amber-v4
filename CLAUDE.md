@@ -154,12 +154,14 @@ Vercel giới hạn body 4,5 MB → `upload` và `transcribe` chặn > 4 MB, tr�
 
 - **Backend** deploy bằng `git push origin main` (project Vercel `amber-v4` nối GitHub `mpati98/amber-v4`, nhánh `main`;
   alias `api.duangmai.io.vn`). Build ~40 giây. Deploy backend TRƯỚC, Flutter sau.
-- **Đang chạy** (13/10/2026): `dpl_FyeZ2MAr67PuXrisVbLitU3DBa4M`, build từ commit `6228a47`.
-  **Mốc rollback** (bản trước đó, commit `e83ba54`): `dpl_EFfp2L1FjKaDkNapWnZJWiD96CEm`.
-  Rollback: `vercel rollback <id>` hoặc promote từ dashboard; DB không tự lùi — migration chỉ thêm cột/bảng nên bản cũ
-  vẫn chạy được trên schema mới.
-- **Migration production đã áp**: 0006 (`agent_logs`) và 0007 (buổi tập) ngày 13/10/2026. Nhánh Neon sao lưu trước đó:
-  `backup-truoc-workout-20261013` (tách từ production; giữ một thời gian rồi xoá).
+- **Đang chạy** (22/10/2026): `dpl_HPsMYszoLZbXzyKTv2pqiGx9v9L8`, build từ commit `e957c71` (Next 16.3.8, Trà Đình học tập, route
+  brain-logs). **Mốc rollback** (bản trước đó, commit `c7254e9`): `dpl_6XqURxEW2ak4NZxG1WUizMz8oxMM`; trước nữa `dpl_FyeZ2MAr67PuXrisVbLitU3DBa4M`
+  (`6228a47`). Commit docs sau đó sẽ có deployment riêng (không đổi code). Rollback: `vercel rollback <id>` hoặc promote từ dashboard; DB không tự lùi —
+  migration chỉ thêm cột/bảng nên bản cũ vẫn chạy được trên schema mới (đã kiểm: brain đẩy log thành công lên bản cũ + schema mới).
+- **Migration production đã áp**: 0006 (`agent_logs`) và 0007 (buổi tập) ngày 13/10/2026; 0008 (`tra_dinh_hoc_tap`: 6 bảng `study_*` + cột
+  `routines.study_subject_id`) và 0009 (`agent_logs.route` + `cloud_model`, index, CHECK) ngày 22/10/2026 — `drizzle.__drizzle_migrations` = 10/10.
+  Lần 22/10 áp trực tiếp, KHÔNG có nhánh sao lưu/diễn tập (người dùng chọn dựa vào point-in-time restore của Neon, cả hai migration chỉ thêm);
+  so trước/sau: số dòng của 31 bảng cũ và số dư 2 ví không đổi, 6 bảng mới rỗng. Nhánh sao lưu cũ: `backup-truoc-workout-20261013`.
 - **Quy trình migrate production đã chạy tốt** — làm lại đúng thế này:
   1. Sao lưu: tạo nhánh Neon từ production (console; máy này không có `neonctl`).
   2. Thử trước trên nhánh tách từ production (`test-migrate-*`): ghi số dòng + số dư ví + số migration đã áp
