@@ -70,6 +70,18 @@ Lỗi trả dạng `{ "error": "<mã>" }`; một số kèm `message` tiếng Vi�
 Schema nằm trong `src/db/schema.ts`, migration trong `drizzle/`.
 (`prisma/migrations/` chỉ là lịch sử trước khi chuyển hẳn sang Drizzle.)
 
+### Seed nhật ký brain giả trên DEV
+
+Khi cần kiểm tra màn dữ liệu huấn luyện bằng dữ liệu tổng hợp, chạy backend dev ở `localhost:3000`, rồi dùng UUID của user DEV:
+
+```bash
+BRAIN_LOG_SEED_USER_ID=<dev-user-uuid> npx tsx scripts/seed-brain-logs.ts
+BRAIN_LOG_SEED_USER_ID=<dev-user-uuid> npx tsx scripts/seed-brain-logs.ts --clean
+```
+
+Script từ chối DB có host trùng `DATABASE_URL_PRODUCTION`, upsert theo ID xác định để chạy lại không nhân bản dòng,
+và `--clean` chỉ xóa các dòng mang marker seed của user đó. Dữ liệu hoàn toàn giả; không dùng trên production.
+
 ## Deploy
 
 Vercel, vùng function `sin1` (cấu hình trong `vercel.json`, gần Neon
