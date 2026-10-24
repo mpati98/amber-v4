@@ -215,15 +215,10 @@ Bảng `routines` (`kind` CHECK | WORKOUT, mặc định CHECK), `routine_logs` 
 
 ## Nhật ký amber-brain (`/api/brain-logs`)
 
-Bảng `agent_logs` (migration 0006) lưu nhật ký lượt gọi mô hình của amber-brain để dựng dataset fine-tune. Route: `GET /`
-(danh sách tóm tắt, phân trang con trỏ, lọc agent/outcome/ngày), `GET /[id]`, `GET /stats`, `PATCH /[id]` (CHỈ
-`excludeFromTraining`), `POST /[id]/feedback` (accepted|rejected), `POST /ingest` (brain đẩy lên, upsert theo id, tối đa 25
-dòng), `GET /export` (brain kéo về, dòng đầy đủ). Mọi route `withAuth` và lọc theo `userId`; dòng của user khác = 404.
-Không có cơ chế tự xóa. Quy tắc "mẫu đủ điều kiện" ở `lib/brain-logs-db.ts` PHẢI khớp `scripts/export_dataset.py` của
-amber-brain; `npm run test:brain-logs` kiểm bằng chung `amber-brain/tests/fixtures/eligibility.json`.
-Cột `route` (`LOCAL`|`CLOUD`, CHECK ở DB, null = dòng cũ/brain chưa gửi) và `cloud_model` (migration **0009**, chỉ thêm cột nên bản code cũ vẫn chạy): ingest nhận
-`route`/`cloudModel` tùy chọn (thiếu = không đổi gì; `route` sai giá trị bị ép về null (dòng vẫn được giữ); trường lạ khác bị bỏ lặng lẽ vì schema
-không strict), `GET /` lọc `?route=LOCAL|CLOUD` (sai → 400 `invalid_query`) và trả cả hai trường, `/[id]` và `/export` cũng trả. **Thứ tự triển khai: migrate TRƯỚC, push
-SAU** (code mới select cột `route`; chạy trên DB chưa có cột thì mọi route brain-logs 500).
-Ingest không bao giờ đặt `excludeFromTraining` và chỉ đổi outcome khi `outcomeAt` mới hơn bản đang có. Kiểm thử tích hợp trên dev branch (cần `npm run dev`): `npm run test:brain-logs` (từ chối chạy nếu DB là production).
+Bảng `agent_logs` (migration 0006; `route` và `cloud_model` từ migration 0009) lưu nhật ký lượt gọi mô hình. Route gồm `GET /` (danh sách, phân trang con trỏ, lọc agent/outcome/ngày/route), `GET /[id]`, `GET /stats`, `PATCH /[id]`, `POST /[id]/feedback`, `POST /ingest` và `GET /export`. Mọi route dùng `withAuth` và lọc theo `userId`; dòng của user khác trả 404. Không có cơ chế tự xóa.
 
+`PATCH /[id]` nhận `correctedOutput` (JSON action hợp lệ hoặc `null` để xoá bản sửa), cập nhật `correctedAt` và đánh dấu dòng đã được người dùng đánh giá mà không tự đổi `accepted`/`rejected`. Bản sửa lưu trong cột hiện có `corrected_output`; không cần migration cho bước này (commit `e7d5934`). `GET /` lọc `?route=LOCAL|CLOUD`. Ingest nhận `route`/`cloudModel` tùy chọn; giá trị route sai thành null.
+
+Export trả thêm `route`, `cloudModel`, `trainingTarget` (ưu tiên `correctedOutput`, ngược lại `parsedOutput`), `eligible` và `eligibleReason`. `eligible=true|false|all` mặc định `all`. Eligibility có một hàm nguồn duy nhất dùng chung với `/stats`; mã reason hiện có là `corrected`, `user_rated`, `confirmed` (commit `074fae7`). Không chuyển lại điều kiện eligibility vào exporter phía brain. `npm run test:brain-logs` kiểm tra API trên DEV, tự từ chối nếu DB production.
+
+`scripts/seed-brain-logs.ts` thêm 303 dòng giả vào DEV (commit `d25435f`), chạy `npx tsx scripts/seed-brain-logs.ts`; `--clean` chỉ xoá các dòng có marker seed. Không dùng dữ liệu seed để huấn luyện. Nợ: lint còn khoảng 71 lỗi `no-explicit-any` ở script e2e; Flutter chưa có contract test cho PATCH `correctedOutput` và lọc `route`.
