@@ -447,7 +447,7 @@ export const activityLogs = pgTable("activity_logs", {
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-  source: varchar("source", { length: 32 }).notNull(), // DU_AN | FINANCE | LEARN | TRA_DINH | KIEU_LAU
+  source: varchar("source", { length: 32 }).notNull(), // DU_AN | FINANCE | LEARN | TRA_DINH | KIEU_LAU | MUSIC
   action: varchar("action", { length: 64 }).notNull(), // "task.completed", "finance.transaction_created",...
   title: varchar("title", { length: 255 }).notNull(),
   metadata: jsonb("metadata"),
@@ -478,6 +478,31 @@ export const feedArticlesCache = pgTable("feed_articles_cache", {
   publishedAt: timestamp("published_at", { withTimezone: true }),
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Tệp nhạc người dùng tải lên Blob.
+export const musicTracks = pgTable(
+  "music_tracks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 255 }).notNull(),
+    artist: varchar("artist", { length: 255 }),
+    blobUrl: text("blob_url").notNull(),
+    blobPathname: text("blob_pathname").notNull().unique(),
+    durationSeconds: integer("duration_seconds"),
+    sizeBytes: integer("size_bytes").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("music_tracks_user_position_idx").on(table.userId, table.position),
+    check("music_tracks_duration_seconds_check", sql`${table.durationSeconds} is null or ${table.durationSeconds} >= 0`),
+    check("music_tracks_size_bytes_check", sql`${table.sizeBytes} > 0 and ${table.sizeBytes} <= 52428800`),
+    check("music_tracks_position_check", sql`${table.position} >= 0`),
+  ]
+);
 
 // ===== Tàng Kinh Các — Giai đoạn 1 gộp Prisma→Drizzle (Topic trước, đơn giản nhất) =====
 
@@ -663,6 +688,11 @@ export const usersRelations = relations(users, ({ many }) => ({
   projects: many(projects),
   tasks: many(tasks),
   skillScores: many(skillScores),
+  musicTracks: many(musicTracks),
+}));
+
+export const musicTracksRelations = relations(musicTracks, ({ one }) => ({
+  user: one(users, { fields: [musicTracks.userId], references: [users.id] }),
 }));
 
 export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({

@@ -22,6 +22,7 @@ npx tsx scripts/create-admin.ts <email> <password>   # tạo user / đặt lại
 npm test                  # unit test (tsx --test src/lib/*.test.ts) — không cần DB
 npm run test:brain-logs   # tích hợp /api/brain-logs trên Neon DEV (cần npm run dev)
 npm run test:routines     # tích hợp việc hằng ngày + buổi tập trên Neon DEV (cần npm run dev)
+npm run test:music      # tích hợp nhạc + Vercel Blob trên Neon DEV (cần npm run dev)
 ```
 
 Hai bộ test tích hợp tạo user tạm, dọn sạch sau khi chạy và **từ chối chạy nếu `DATABASE_URL` là production**. Với route
@@ -40,6 +41,7 @@ Biến code cần (không bao giờ in giá trị ra log/output):
 | `MOBILE_APP_ORIGIN` | CORS trong `next.config.ts` — thiếu thì thành `*`; production phải là domain app Flutter |
 | `AUTH_SECRET` | NextAuth tự đọc |
 | `BLOB_READ_WRITE_TOKEN` | `@vercel/blob` tự đọc |
+| `BLOB_STORE_ID`, `VERCEL_OIDC_TOKEN` | Vercel tự cấp cho project đã nối private Blob store; SDK dùng để đọc stream private |
 | `PORTFOLIO_ORIGIN` | CORS cho form liên hệ của site portfolio (`next.config.ts`); thiếu thì KHÔNG mở origin nào |
 | `RESEND_API_KEY`, `CONTACT_NOTIFY_EMAIL` | `lib/contact.ts` — gửi email báo có tin nhắn liên hệ |
 | `AUTH_TRUST_HOST=true` | chỉ cần khi tự host (`next start` ngoài Vercel) |
@@ -69,7 +71,9 @@ vercel.json             { "regions": ["sin1"] } — gần Neon Singapore
 
 ### Xác thực
 
-- **Mọi route cần đăng nhập bọc `withAuth`** (`lib/withAuth.ts`):
+- **Mọi route cần đăng nhập bọc `withAuth`** (`lib/withAuth.ts`), ngoại trừ
+  `/api/music/tracks/:id/stream`, xác thực signed token chỉ đọc theo track vì
+  trình phát audio không gửi được Authorization header:
   `export const GET = withAuth(async (req, userId, { params }) => {...})`.
   `withAuth` đã gồm `withApiError` (bắt exception → 500 JSON).
 - `getUserId` (`lib/mobile-auth.ts`): thử cookie NextAuth trước, rồi
@@ -103,6 +107,7 @@ vercel.json             { "regions": ["sin1"] } — gần Neon Singapore
 |---|---|---|
 | Nghị Sự Đường | `/api/projects`, `/api/tasks`, `/api/du-an`, `/api/finance`, `/api/learn` | không có prefix chung; việc hằng ngày + buổi tập: `/api/du-an/routines` (mục riêng bên dưới). `projects.type`: STANDARD (dự án với KR, việc hằng ngày, bảng Kanban) / FINANCE (1 project/tháng) / LEARN (khóa học) / PRACTICE (buổi Trà Đình) |
 | Tàng Kinh Các | `/api/tang-kinh-cac` | sách, tài liệu, highlight, mục tiêu đọc, upload Blob private (đọc lại qua `/blob/[...path]`) |
+| Nhạc | `/api/music` | track MP3 riêng theo user, client upload Blob qua token giới hạn |
 | Kiều Lâu | `/api/kieu-lau` | cảnh báo tính lúc gọi (không lưu DB), nhật ký `activity_logs`, RSS |
 | Trà Đình | `/api/tra-dinh` | luyện tiếng Anh với AI: chat, ghi âm→chữ, đọc thành tiếng, bài test đầu vào, điểm 6 kỹ năng |
 | Hồ sơ | `/api/user` | đổi tên, đổi mật khẩu |
@@ -112,7 +117,7 @@ vercel.json             { "regions": ["sin1"] } — gần Neon Singapore
 `/finance/<id>`, `/hoc-tap/<id>`) — đổi path phải sửa cả 2 bên.
 
 Ghi thao tác quan trọng bằng `logActivity({ userId, source, action, title, metadata? })`
-(`lib/activity-log.ts`); `source` ∈ `DU_AN | FINANCE | LEARN | TRA_DINH | KIEU_LAU`.
+(`lib/activity-log.ts`); `source` ∈ `DU_AN | FINANCE | LEARN | TRA_DINH | KIEU_LAU | MUSIC`.
 
 ## Quy ước bắt buộc
 
@@ -149,6 +154,34 @@ Ghi thao tác quan trọng bằng `logActivity({ userId, source, action, title, 
 Vercel giới hạn body 4,5 MB → `upload` và `transcribe` chặn > 4 MB, trả 413
 `{ error: "file_too_large", message }`. Tên file qua `sanitizeFileName`
 (`lib/filename.ts`) trước khi ghép đường dẫn Blob (giữ tiền tố timestamp).
+Nhạc dùng client upload qua `POST /api/music/upload` để không đi qua giới hạn body
+của Function; token chỉ cho `audio/mpeg`, tối đa 50 MB. Sau upload, client lưu
+metadata qua `POST /api/music/tracks`; cả token lẫn pathname track đều gắn với user.
+Blob store hiện là private-only. `GET /api/music/tracks` trả thêm `streamUrl` có
+token chỉ đọc cho đúng track, hết hạn sau một giờ; Flutter web phát URL này
+thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
+
+### Nhạc (`/api/music`)
+
+- `POST /upload`: `handleUpload` cấp client token sau khi kiểm tra JWT, chỉ cho
+  pathname `music/<userId>/*.mp3`, `audio/mpeg`, tối đa 50 MiB; client gửi file
+  thẳng lên Blob (private store), không gửi bytes qua API.
+- `GET /tracks`: danh sách track của user, theo `position`, `createdAt`, `id`.
+  Mỗi track có thêm `streamUrl`; dùng URL này cho trình phát audio (token query
+  chỉ có quyền đọc track đó và hết hạn sau một giờ). Không log URL/token này.
+- `POST /tracks`: lưu metadata sau upload; `title`, `blobUrl`, `blobPathname`,
+  `sizeBytes` bắt buộc; `artist` và `durationSeconds` có thể null/bỏ trống.
+  `position` được nối cuối danh sách.
+- `PATCH /tracks/:id`: sửa `title`, `artist` (null để xoá) hoặc `position`;
+  di chuyển vị trí sẽ sắp lại danh sách liên tục từ 0.
+- `DELETE /tracks/:id`: xoá Blob rồi xoá row; track của user khác trả 404.
+- `GET /tracks/:id/stream?token=...`: stream private Blob không cần Authorization
+  header; hỗ trợ Range đơn (`206`, `Accept-Ranges`, `Content-Range`,
+  `Content-Length`) và trả `401` khi token thiếu, không hợp lệ hoặc hết hạn.
+  Token stream ký HS256 bằng `MOBILE_JWT_SECRET`, chỉ có quyền với một track và
+  hết hạn sau một giờ. Store phải là private; không đổi upload sang public.
+- Chạy `npm run test:music` để tích hợp cả upload Blob và CRUD trên Neon DEV;
+  script từ chối nếu `DATABASE_URL` trùng host production.
 
 ## Triển khai production
 
@@ -162,6 +195,8 @@ Vercel giới hạn body 4,5 MB → `upload` và `transcribe` chặn > 4 MB, tr�
   `routines.study_subject_id`) và 0009 (`agent_logs.route` + `cloud_model`, index, CHECK) ngày 22/10/2026 — `drizzle.__drizzle_migrations` = 10/10.
   Lần 22/10 áp trực tiếp, KHÔNG có nhánh sao lưu/diễn tập (người dùng chọn dựa vào point-in-time restore của Neon, cả hai migration chỉ thêm);
   so trước/sau: số dòng của 31 bảng cũ và số dư 2 ví không đổi, 6 bảng mới rỗng. Nhánh sao lưu cũ: `backup-truoc-workout-20261013`.
+- **Music migration production 0010** (`0010_wealthy_fat_cobra`, bảng `music_tracks`) đã áp ngày 24/10/2026 sau khi xác nhận đủ 10 migration trước đó.
+  `drizzle.__drizzle_migrations` = 11/11; 37 bảng cũ giữ nguyên số dòng, số dư 2 ví không đổi; `music_tracks` mới rỗng. Nhánh backup Neon đã được người dùng xác nhận trước migrate: `backup-truoc-music-20261024`.
 - **Quy trình migrate production đã chạy tốt** — làm lại đúng thế này:
   1. Sao lưu: tạo nhánh Neon từ production (console; máy này không có `neonctl`).
   2. Thử trước trên nhánh tách từ production (`test-migrate-*`): ghi số dòng + số dư ví + số migration đã áp
@@ -175,6 +210,9 @@ Vercel giới hạn body 4,5 MB → `upload` và `transcribe` chặn > 4 MB, tr�
      kết nối chỉ-đọc. Chạy cả `db:migrate` cho MỌI migration còn treo, không chỉ cái mình vừa viết.
   4. Push → chờ deployment Ready → xác nhận commit + alias (`vercel api /v13/deployments/<id>`) → smoke test không ghi:
      GET không token trả 401 (không 404/500), `/api/health` 200, preflight OPTIONS từ `https://amber.duangmai.io.vn` được phép.
+- **Phát hành Nhạc (24/10/2026)**: migration 0010 đã lên production; backend code chưa push/deploy. Stream route khai báo Node.js runtime và
+  `maxDuration = 300` cho Vercel Hobby (plan đã được người dùng xác nhận). Hobby dừng function sau tối đa 300 giây; nếu một response stream
+  liên tục lâu hơn, nó sẽ bị cắt. Cần kiểm thử trên iPhone với MP3 dài và xử lý giới hạn này trước khi coi phát liên tục >5 phút là bảo đảm.
 - **Máy này không có thông tin đăng nhập GitHub**: người dùng tự `git push`, đừng cố push hay cấu hình credential.
 - **Không chạy test hợp đồng / test tích hợp với production** (chúng ghi dữ liệu thật); chỉ chạy trên Neon dev.
 

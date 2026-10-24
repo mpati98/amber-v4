@@ -23,6 +23,9 @@ const SELF_AUTH_API_PREFIXES = [
   "/api/tra-dinh",
   // Nhật ký amber-brain (dataset fine-tune): đọc/đánh giá từ Flutter, ingest từ brain.
   "/api/brain-logs",
+  // Nhạc cá nhân — API thường tự bọc withAuth; route stream dùng signed token
+  // theo track trong query vì HTML audio không thể gửi Authorization header.
+  "/api/music",
   // Hồ sơ + đổi mật khẩu (trước chỉ trang Cài đặt web gọi qua cookie).
   "/api/user",
   // Route CÔNG KHAI (form liên hệ portfolio): không dùng phiên đăng nhập, tự

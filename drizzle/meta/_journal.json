@@ -71,6 +71,13 @@
       "when": 1792680516384,
       "tag": "0009_agent_logs_route",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792854774909,
+      "tag": "0010_wealthy_fat_cobra",
+      "breakpoints": true
     }
   ]
 }

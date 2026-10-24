@@ -21,7 +21,7 @@ const publicCorsHeaders = [
 const nextConfig: NextConfig = {
   // CORS chỉ cho API mà app Flutter gọi (cross-origin bằng Bearer token):
   // /api/mobile/* và các API dùng chung web + Flutter: Kiều Lâu, Tàng Kinh Các,
-  // Nghị Sự Đường (projects, tasks, du-an, finance, learn), Trà Đình, hồ sơ user.
+  // Nghị Sự Đường (projects, tasks, du-an, finance, learn), Trà Đình, hồ sơ user, nhạc.
   // Các route khác chỉ web gọi same-origin qua cookie, không cần CORS.
   async headers() {
     return [
@@ -30,6 +30,7 @@ const nextConfig: NextConfig = {
       { source: "/api/tang-kinh-cac/:path*", headers: mobileCorsHeaders },
       { source: "/api/tra-dinh/:path*", headers: mobileCorsHeaders },
       { source: "/api/brain-logs/:path*", headers: mobileCorsHeaders },
+      { source: "/api/music/:path*", headers: mobileCorsHeaders },
       { source: "/api/user/:path*", headers: mobileCorsHeaders },
       { source: "/api/public/:path*", headers: publicCorsHeaders },
       // `:path*` khớp cả 0 đoạn → gồm luôn /api/projects, /api/tasks.

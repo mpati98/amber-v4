@@ -6,7 +6,7 @@ type ActivityWriter = (values: ActivityValues) => PromiseLike<unknown>;
 
 export async function logActivity(params: {
   userId: string;
-  source: "DU_AN" | "FINANCE" | "LEARN" | "TRA_DINH" | "KIEU_LAU";
+  source: "DU_AN" | "FINANCE" | "LEARN" | "TRA_DINH" | "KIEU_LAU" | "MUSIC";
   action: string;
   title: string;
   metadata?: Record<string, unknown>;

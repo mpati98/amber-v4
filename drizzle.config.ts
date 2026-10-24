@@ -49,5 +49,6 @@ export default defineConfig({
     "study_logs",
     "study_log_sections",
     "study_day_reasons",
+    "music_tracks",
   ],
 });
