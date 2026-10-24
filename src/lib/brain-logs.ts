@@ -117,11 +117,18 @@ export const patchSchema = z.object({
   message: "At least one field must be provided",
 });
 
-export const exportQuerySchema = z.object({ route: z.enum(ROUTES).optional() }).strict();
+export const exportQuerySchema = z.object({
+  route: z.enum(ROUTES).optional(),
+  eligible: z.enum(["true", "false", "all"]).default("all"),
+}).strict();
 
 export function parseExportQuery(sp: URLSearchParams) {
   const route = sp.get("route");
-  const parsed = exportQuerySchema.safeParse(route === null || route === "" ? {} : { route });
+  const eligible = sp.get("eligible");
+  const parsed = exportQuerySchema.safeParse({
+    ...(route === null || route === "" ? {} : { route }),
+    ...(eligible === null ? {} : { eligible }),
+  });
   return parsed.success ? { ok: true as const, value: parsed.data } : { ok: false as const, error: "invalid_query" };
 }
 

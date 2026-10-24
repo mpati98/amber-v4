@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { inArray, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { agentLogs, users } from "@/db/schema";
+import { encodeCursor } from "@/lib/brain-logs";
 import { signAccessToken } from "@/lib/mobile-auth";
 
 const host = (u?: string) => { try { return new URL(u ?? "").hostname; } catch { return ""; } };
@@ -135,6 +136,9 @@ async function main() {
     ]) {
       check(`PATCH sai ${JSON.stringify(bad)} → 400`, (await call(A, "PATCH", `/${ids.exp}`, bad)).s === 400);
     }
+    const acceptedExport = await call(A, "GET", "/export");
+    check("eligibleReason user_rated cho accepted chưa sửa",
+      records(acceptedExport.j.items).some((i) => i.id === ids.chat && i.eligibleReason === "user_rated"));
     r = await call(A, "PATCH", `/${ids.chat}`, { correctedOutput: { action: "chitchat", reply: "Hello, corrected." } });
     check("PATCH correctedOutput lưu và không đổi accepted", r.s === 200 && r.j.correctedOutput.reply === "Hello, corrected." && r.j.outcome === "accepted", r);
     const eligibleBeforeCorrection = eligibleFor((await call(A, "GET", "/stats")).j, "expense");
@@ -153,11 +157,34 @@ async function main() {
 
     // export
     await call(A, "PATCH", `/${ids.cor}`, { excludeFromTraining: true });
-    let ex2: string[] = [], c2: string | null = null;
+    const ex2: string[] = []; let c2: string | null = null;
     do { const p = await call(A, "GET", "/export" + (c2 ? `?cursor=${c2}` : "")); ex2.push(...p.j.items.map((i: any) => i.id)); c2 = p.j.nextCursor; } while (c2);
     check("export: correction cho phép rejected, vẫn loại cờ loại và correction bị loại", ex2.includes(ids.exp) && ex2.includes(ids.chat) && ex2.includes(ids.rej) && ex2.includes(ids.fresh) && !ex2.includes(ids.cor), ex2.filter((i) => idList.includes(i)));
     const first = (await call(A, "GET", "/export")).j.items[0];
-    check("export trả dòng đầy đủ + trainingTarget", "messages" in first && "tools" in first && "trainingTarget" in first && !("userId" in first));
+    check("export trả dòng đầy đủ + trainingTarget + eligibility", "messages" in first && "tools" in first && "trainingTarget" in first
+      && typeof first.eligible === "boolean" && "eligibleReason" in first && !("userId" in first));
+    const eligibleItems: Record<string, unknown>[] = []; let eligibleCursor: string | null = null;
+    do {
+      const p = await call(A, "GET", `/export?eligible=true${eligibleCursor ? `&cursor=${eligibleCursor}` : ""}`);
+      eligibleItems.push(...records(p.j.items));
+      eligibleCursor = p.j.nextCursor;
+    } while (eligibleCursor);
+    const statsEligible = (await call(A, "GET", "/stats")).j.eligible;
+    check("eligible=true lọc đúng + bỏ trùng khớp /stats",
+      eligibleItems.every((i) => i.eligible && typeof i.eligibleReason === "string") && eligibleItems.length === statsEligible,
+      { exportCount: eligibleItems.length, statsEligible });
+    const firstEligible = eligibleItems[0];
+    const afterFirst = firstEligible && typeof firstEligible.createdAt === "string" && typeof firstEligible.id === "string"
+      ? await call(A, "GET", `/export?eligible=true&cursor=${encodeCursor(new Date(firstEligible.createdAt), firstEligible.id)}`)
+      : { s: 0, j: null };
+    check("eligible export cursor phân trang đúng",
+      afterFirst.s === 200 && records(afterFirst.j.items).every((i) => i.eligible === true) && !records(afterFirst.j.items).some((i) => i.id === firstEligible?.id));
+    const ineligible = await call(A, "GET", "/export?eligible=false");
+    check("eligible=false chỉ trả dòng không đủ điều kiện",
+      ineligible.s === 200 && records(ineligible.j.items).every((i) => i.eligible === false && i.eligibleReason === null));
+    check("export eligible sai giá trị → 400", (await call(A, "GET", "/export?eligible=yes")).s === 400);
+    check("eligibleReason: confirmed/corrected", eligibleItems.some((i) => i.id === ids.exp && i.eligibleReason === "confirmed")
+      && eligibleItems.some((i) => i.id === ids.rej && i.eligibleReason === "corrected"), eligibleItems.map((i) => [i.id, i.eligibleReason]));
     r = await call(A, "GET", `/export?route=LOCAL`);
     check("export lọc route LOCAL", r.s === 200 && records(r.j.items).every((i) => i.route === "LOCAL"), records(r.j.items).map((i) => i.route));
     check("export route không hợp lệ → 400", (await call(A, "GET", "/export?route=cloud")).s === 400);
@@ -262,6 +289,15 @@ async function main() {
     const got = Object.fromEntries(r.j.byAgent.map((x: any) => [x.agent, x.eligible]));
     check("fixture: số mẫu đủ điều kiện theo agent khớp bản Python (có bỏ trùng)", JSON.stringify(Object.entries(got).sort()) === JSON.stringify(Object.entries(fx.expectedEligible).sort()), { got, want: fx.expectedEligible });
     check("fixture: tổng eligible", r.j.eligible === Object.values(fx.expectedEligible).reduce((a: number, b: any) => a + b, 0), r.j.eligible);
+    const fixtureEligible: Record<string, unknown>[] = []; let fixtureCursor: string | null = null;
+    do {
+      const p = await call(B, "GET", `/export?eligible=true${fixtureCursor ? `&cursor=${fixtureCursor}` : ""}`);
+      fixtureEligible.push(...records(p.j.items));
+      fixtureCursor = p.j.nextCursor;
+    } while (fixtureCursor);
+    check("fixture: export eligible=true bằng /stats (có bỏ trùng)",
+      fixtureEligible.length === r.j.eligible && fixtureEligible.every((i) => i.eligible && i.eligibleReason),
+      { exportCount: fixtureEligible.length, statsEligible: r.j.eligible });
   } finally {
     await db.delete(agentLogs).where(inArray(agentLogs.id, Object.values(ids)));
     await db.delete(users).where(inArray(users.id, [a.id, b.id]));

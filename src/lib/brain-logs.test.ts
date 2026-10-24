@@ -5,7 +5,8 @@ import {
   correctedActionSchema, decodeCursor, encodeCursor, exportQuerySchema, feedbackSchema, ingestLogSchema, parseExportQuery,
   parseListQuery, patchSchema, ROUTES, shouldApplyOutcome, vnDayStart,
 } from "./brain-logs";
-import { fullColumns, summaryColumns } from "./brain-logs-db";
+import { ELIGIBLE_REASONS, eligibleReason, fullColumns, summaryColumns } from "./brain-logs-db";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
@@ -99,16 +100,30 @@ test("corrected action schema rejects missing required fields, unknown actions a
   }
 });
 
-test("export route filter accepts only LOCAL or CLOUD", () => {
-  assert.deepEqual(parseExportQuery(new URLSearchParams("")), { ok: true, value: {} });
-  assert.deepEqual(parseExportQuery(new URLSearchParams("route=")), { ok: true, value: {} });
+test("export route and eligibility filters validate; default keeps legacy behavior", () => {
+  assert.deepEqual(parseExportQuery(new URLSearchParams("")), { ok: true, value: { eligible: "all" } });
+  assert.deepEqual(parseExportQuery(new URLSearchParams("route=")), { ok: true, value: { eligible: "all" } });
   for (const route of ROUTES) {
-    assert.deepEqual(parseExportQuery(new URLSearchParams(`route=${route}`)), { ok: true, value: { route } });
+    assert.deepEqual(parseExportQuery(new URLSearchParams(`route=${route}`)), { ok: true, value: { route, eligible: "all" } });
   }
   for (const route of ["cloud", "EDGE", "LOCAL,CLOUD", "null"]) {
     assert.deepEqual(parseExportQuery(new URLSearchParams(`route=${route}`)), { ok: false, error: "invalid_query" });
   }
+  for (const eligible of ["true", "false", "all"]) {
+    assert.deepEqual(parseExportQuery(new URLSearchParams(`eligible=${eligible}`)), { ok: true, value: { eligible } });
+  }
+  for (const eligible of ["yes", "1", "TRUE", ""]) {
+    assert.deepEqual(parseExportQuery(new URLSearchParams(`eligible=${eligible}`)), { ok: false, error: "invalid_query" });
+  }
   assert.ok(exportQuerySchema.safeParse({ route: "CLOUD" }).success);
+});
+
+test("eligibility CASE maps the three accepted reasons and their SQL branches", () => {
+  const query = new PgDialect().sqlToQuery(eligibleReason);
+  assert.deepEqual(ELIGIBLE_REASONS, ["confirmed", "corrected", "user_rated"]);
+  assert.ok(query.sql.includes("corrected_output") && query.sql.includes("outcome"));
+  assert.ok(query.sql.includes("tool_ok") && query.sql.includes("created_at"));
+  assert.deepEqual(query.params.filter((value) => typeof value === "string"), ["corrected", "user_rated", "corrected", "confirmed"]);
 });
 
 // --- route / cloudModel (migration 0009) -----------------------------------------------------------------------
