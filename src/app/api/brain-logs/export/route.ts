@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
-import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, or } from "drizzle-orm";
 import { withAuth } from "@/lib/withAuth";
 import { db } from "@/db";
 import { agentLogs } from "@/db/schema";
-import { EXPORT_PAGE, decodeCursor, encodeCursor } from "@/lib/brain-logs";
+import { EXPORT_PAGE, decodeCursor, encodeCursor, parseExportQuery } from "@/lib/brain-logs";
 import { fullColumns } from "@/lib/brain-logs-db";
 
 // Nguồn dữ liệu cho scripts/export_dataset.py của amber-brain: dòng ĐẦY ĐỦ của chính user, cũ trước, phân trang bằng con trỏ.
 // Chỉ trả dòng còn khả năng thành mẫu (chưa bị loại, outcome unknown/accepted/corrected); brain tự áp quy tắc chọn mẫu chi tiết.
 export const GET = withAuth(async (req, userId) => {
+  const query = parseExportQuery(req.nextUrl.searchParams);
+  if (!query.ok) return NextResponse.json({ error: query.error }, { status: 400 });
   const c = req.nextUrl.searchParams.get("cursor");
   const cursor = c ? decodeCursor(c) : null;
   if (c && !cursor) return NextResponse.json({ error: "invalid_cursor" }, { status: 400 });
@@ -20,7 +22,8 @@ export const GET = withAuth(async (req, userId) => {
       and(
         eq(agentLogs.userId, userId),
         eq(agentLogs.excludeFromTraining, false),
-        inArray(agentLogs.outcome, ["unknown", "accepted", "corrected"]),
+        query.value.route ? eq(agentLogs.route, query.value.route) : undefined,
+        or(inArray(agentLogs.outcome, ["unknown", "accepted", "corrected"]), isNotNull(agentLogs.correctedOutput)),
         cursor
           ? or(
               gt(agentLogs.createdAt, cursor.createdAt),
@@ -35,7 +38,7 @@ export const GET = withAuth(async (req, userId) => {
   const page = rows.slice(0, EXPORT_PAGE);
   const last = page[page.length - 1];
   return NextResponse.json({
-    items: page,
+    items: page.map((row) => ({ ...row, trainingTarget: row.correctedOutput ?? row.parsedOutput })),
     nextCursor: rows.length > EXPORT_PAGE && last ? encodeCursor(last.createdAt, last.id) : null,
   });
 });

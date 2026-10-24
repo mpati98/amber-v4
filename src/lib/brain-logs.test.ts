@@ -2,7 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  decodeCursor, encodeCursor, feedbackSchema, ingestLogSchema, parseListQuery, patchSchema, ROUTES, shouldApplyOutcome, vnDayStart,
+  correctedActionSchema, decodeCursor, encodeCursor, exportQuerySchema, feedbackSchema, ingestLogSchema, parseExportQuery,
+  parseListQuery, patchSchema, ROUTES, shouldApplyOutcome, vnDayStart,
 } from "./brain-logs";
 import { fullColumns, summaryColumns } from "./brain-logs-db";
 
@@ -57,14 +58,57 @@ test("ingest: nhận dòng hợp lệ, bỏ trường lạ (userId, excludeFromT
   assert.equal(ingestLogSchema.safeParse({ id: ID, createdAt: "2026-10-10T10:00:00Z", agent: "a", outcome: "great" }).success, false);
 });
 
-test("feedback chỉ accepted/rejected; PATCH chỉ excludeFromTraining", () => {
+test("feedback chỉ accepted/rejected; PATCH nhận excludeFromTraining hoặc correctedOutput", () => {
   assert.ok(feedbackSchema.safeParse({ outcome: "accepted" }).success);
   assert.ok(feedbackSchema.safeParse({ outcome: "rejected" }).success);
   for (const bad of [{ outcome: "retried" }, { outcome: "accepted", x: 1 }, {}]) assert.equal(feedbackSchema.safeParse(bad).success, false);
   assert.ok(patchSchema.safeParse({ excludeFromTraining: true }).success);
+  assert.ok(patchSchema.safeParse({ correctedOutput: null }).success);
+  assert.ok(patchSchema.safeParse({ correctedOutput: { action: "chitchat", reply: "Hi." } }).success);
   for (const bad of [{}, { excludeFromTraining: "yes" }, { excludeFromTraining: true, userInput: "x" }, { outcome: "accepted" }, { messages: [] }]) {
     assert.equal(patchSchema.safeParse(bad).success, false, JSON.stringify(bad));
   }
+});
+
+test("corrected action schema accepts every Gemma action with its required fields", () => {
+  const actions = [
+    { action: "task_add", system: "work", title: "Call Linh", deadline_text: null },
+    { action: "task_list", system: null, range_text: "today" },
+    { action: "task_complete", title: "Call Linh" },
+    { action: "expense_add", type: "expense", amount_text: "45k", category: "Food", note: "lunch", date_text: null },
+    { action: "expense_query", type: "income", category: null, range_text: "this month" },
+    { action: "tutor", mode: "correct", text: "I goed home" },
+    { action: "news", topic: null, range_text: null },
+    { action: "clarify", intent: "expense_add", missing: ["amount", "category"], reply: "What was it?" },
+    { action: "chitchat", reply: "Hello!" },
+  ];
+  for (const action of actions) {
+    assert.ok(correctedActionSchema.safeParse(action).success, JSON.stringify(action));
+  }
+});
+
+test("corrected action schema rejects missing required fields, unknown actions and extra keys", () => {
+  for (const bad of [
+    { action: "expense_add", type: "expense", category: "Food", note: "", date_text: null },
+    { action: "expense_query", type: "expense", category: null },
+    { action: "tutor", mode: "sing", text: "x" },
+    { action: "unknown", reply: "x" },
+    { action: "chitchat", reply: "hi", route: "CLOUD" },
+  ]) {
+    assert.equal(correctedActionSchema.safeParse(bad).success, false, JSON.stringify(bad));
+  }
+});
+
+test("export route filter accepts only LOCAL or CLOUD", () => {
+  assert.deepEqual(parseExportQuery(new URLSearchParams("")), { ok: true, value: {} });
+  assert.deepEqual(parseExportQuery(new URLSearchParams("route=")), { ok: true, value: {} });
+  for (const route of ROUTES) {
+    assert.deepEqual(parseExportQuery(new URLSearchParams(`route=${route}`)), { ok: true, value: { route } });
+  }
+  for (const route of ["cloud", "EDGE", "LOCAL,CLOUD", "null"]) {
+    assert.deepEqual(parseExportQuery(new URLSearchParams(`route=${route}`)), { ok: false, error: "invalid_query" });
+  }
+  assert.ok(exportQuerySchema.safeParse({ route: "CLOUD" }).success);
 });
 
 // --- route / cloudModel (migration 0009) -----------------------------------------------------------------------
@@ -149,4 +193,3 @@ test("cột trả ra: danh sách tóm tắt, chi tiết và export đều có ro
     assert.equal("userId" in cols, false);
   }
 });
-

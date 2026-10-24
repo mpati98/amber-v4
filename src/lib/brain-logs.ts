@@ -8,6 +8,56 @@ export const FEEDBACK_OUTCOMES = ["accepted", "rejected"] as const;
 export const ROUTES = ["LOCAL", "CLOUD"] as const; // tuyến xử lý của lượt: local hay hỏi cloud (Groq)
 export type Route = (typeof ROUTES)[number];
 
+const taskSystem = z.enum(["work", "personal"]);
+const expenseType = z.enum(["expense", "income"]);
+const category = z.enum(["Food", "Rent", "Transport", "Shopping", "Other", "Uncategorized"]);
+
+export const correctedActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("task_add"),
+    system: taskSystem,
+    title: z.string().min(1),
+    deadline_text: z.string().nullable(),
+  }).strict(),
+  z.object({
+    action: z.literal("task_list"),
+    system: taskSystem.nullable(),
+    range_text: z.string().min(1),
+  }).strict(),
+  z.object({ action: z.literal("task_complete"), title: z.string().min(1) }).strict(),
+  z.object({
+    action: z.literal("expense_add"),
+    type: expenseType,
+    amount_text: z.string().nullable(),
+    category,
+    note: z.string(),
+    date_text: z.string().nullable(),
+  }).strict(),
+  z.object({
+    action: z.literal("expense_query"),
+    type: expenseType,
+    category: category.nullable(),
+    range_text: z.string().min(1),
+  }).strict(),
+  z.object({
+    action: z.literal("tutor"),
+    mode: z.enum(["explain", "correct", "translate", "quiz"]),
+    text: z.string().min(1),
+  }).strict(),
+  z.object({
+    action: z.literal("news"),
+    topic: z.string().nullable(),
+    range_text: z.string().nullable(),
+  }).strict(),
+  z.object({
+    action: z.literal("clarify"),
+    intent: z.string().min(1),
+    missing: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
+    reply: z.string().min(1),
+  }).strict(),
+  z.object({ action: z.literal("chitchat"), reply: z.string().min(1) }).strict(),
+]);
+
 export const INGEST_MAX_ROWS = 25; // mỗi request: messages mỗi dòng có thể vài chục KB, Vercel giới hạn body ~4.5MB
 export const LIST_DEFAULT_LIMIT = 50;
 export const LIST_MAX_LIMIT = 200;
@@ -60,7 +110,20 @@ export const ingestLogSchema = z.object({
 export type IngestLog = z.infer<typeof ingestLogSchema>;
 
 export const feedbackSchema = z.object({ outcome: z.enum(FEEDBACK_OUTCOMES) }).strict();
-export const patchSchema = z.object({ excludeFromTraining: z.boolean() }).strict(); // app KHÔNG sửa nội dung log
+export const patchSchema = z.object({
+  excludeFromTraining: z.boolean().optional(),
+  correctedOutput: correctedActionSchema.nullable().optional(),
+}).strict().refine((value) => value.excludeFromTraining !== undefined || value.correctedOutput !== undefined, {
+  message: "At least one field must be provided",
+});
+
+export const exportQuerySchema = z.object({ route: z.enum(ROUTES).optional() }).strict();
+
+export function parseExportQuery(sp: URLSearchParams) {
+  const route = sp.get("route");
+  const parsed = exportQuerySchema.safeParse(route === null || route === "" ? {} : { route });
+  return parsed.success ? { ok: true as const, value: parsed.data } : { ok: false as const, error: "invalid_query" };
+}
 
 /** Bản mới hơn thắng khi brain và app cùng đặt outcome. Brain không có mốc (chưa từng đặt) thì không bao giờ đè. */
 export function shouldApplyOutcome(existingAt: Date | null, incomingAt: Date | null): boolean {

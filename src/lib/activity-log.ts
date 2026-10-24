@@ -1,15 +1,18 @@
 import { db } from "@/db";
 import { activityLogs } from "@/db/schema";
 
+type ActivityValues = typeof activityLogs.$inferInsert;
+type ActivityWriter = (values: ActivityValues) => PromiseLike<unknown>;
+
 export async function logActivity(params: {
   userId: string;
   source: "DU_AN" | "FINANCE" | "LEARN" | "TRA_DINH" | "KIEU_LAU";
   action: string;
   title: string;
   metadata?: Record<string, unknown>;
-}): Promise<void> {
+}, write: ActivityWriter = (values) => db.insert(activityLogs).values(values)): Promise<void> {
   try {
-    await db.insert(activityLogs).values({
+    await write({
       userId: params.userId,
       source: params.source,
       action: params.action,

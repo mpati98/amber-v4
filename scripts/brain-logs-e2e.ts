@@ -10,6 +10,14 @@ import { agentLogs, users } from "@/db/schema";
 import { signAccessToken } from "@/lib/mobile-auth";
 
 const host = (u?: string) => { try { return new URL(u ?? "").hostname; } catch { return ""; } };
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+const records = (value: unknown): Record<string, unknown>[] => Array.isArray(value) ? value.filter(isRecord) : [];
+const eligibleFor = (response: unknown, agent: string): number => {
+  if (!isRecord(response) || !Array.isArray(response.byAgent)) throw new Error("Invalid stats response.");
+  const stats = response.byAgent.find((item) => isRecord(item) && item.agent === agent);
+  if (!isRecord(stats) || typeof stats.eligible !== "number") throw new Error(`Missing eligible count for ${agent}.`);
+  return stats.eligible;
+};
 if (!process.env.DATABASE_URL || host(process.env.DATABASE_URL) === host(process.env.DATABASE_URL_PRODUCTION)) {
   console.error("Từ chối chạy: DATABASE_URL không phải nhánh dev (trùng host production hoặc chưa đặt).");
   process.exit(3);
@@ -26,7 +34,7 @@ const ago = (d: number) => new Date(Date.now() - d * 864e5).toISOString();
 const msgs = [{ role: "system", content: "s" }, { role: "user", content: "chi 45k" }];
 
 async function main() {
-  const [a] = await db.select({ id: users.id }).from(users).limit(1);
+  const [a] = await db.insert(users).values({ email: `brainlogs-e2e-${randomUUID()}@example.invalid`, passwordHash: "x" }).returning({ id: users.id });
   const [b] = await db.insert(users).values({ email: `brainlogs-e2e-${randomUUID()}@example.invalid`, passwordHash: "x" }).returning({ id: users.id });
   const ids: Record<string, string> = { exp: randomUUID(), chat: randomUUID(), cor: randomUUID(), rej: randomUUID(), fresh: randomUUID(), bad: randomUUID(),
     rLocal: randomUUID(), rCloud: randomUUID(), rLegacy: randomUUID(), rExtra: randomUUID(), rBad: randomUUID(), rCheck: randomUUID() };
@@ -111,22 +119,48 @@ async function main() {
     await call(A, "POST", "/ingest", { logs: [{ ...rowFresh, userInput: "mới (cập nhật)", outcome: "corrected", outcomeAt: new Date(Date.now() + 5000).toISOString(), correctedOutput: { a: 9 }, correctedAt: new Date().toISOString() }] });
     r = await call(A, "GET", `/${ids.fresh}`); check("ingest mốc mới hơn thắng + cập nhật nội dung", r.j.outcome === "corrected" && r.j.correctedOutput?.a === 9 && r.j.userInput === "mới (cập nhật)", r.j);
 
-    // PATCH exclude
+    // PATCH exclude + corrected training target
+    r = await call(A, "GET", "/stats");
+    const eligibleBeforeExclude = eligibleFor(r.j, "expense");
     r = await call(A, "PATCH", `/${ids.exp}`, { excludeFromTraining: true }); check("PATCH exclude", r.s === 200 && r.j.excludeFromTraining === true, r);
-    for (const bad of [{ userInput: "sửa" }, { excludeFromTraining: true, outcome: "accepted" }, {}, { excludeFromTraining: "yes" }])
+    const eligibleAfterExclude = eligibleFor((await call(A, "GET", "/stats")).j, "expense");
+    check("loại mẫu: eligible giảm 1", eligibleAfterExclude === eligibleBeforeExclude - 1, { eligibleBeforeExclude, eligibleAfterExclude });
+    for (const bad of [
+      { userInput: "sửa" },
+      { excludeFromTraining: true, outcome: "accepted" },
+      {},
+      { excludeFromTraining: "yes" },
+      { correctedOutput: { action: "expense_add", category: "Food", amount_text: "45k" } },
+      { correctedOutput: { action: "unknown" } },
+    ]) {
       check(`PATCH sai ${JSON.stringify(bad)} → 400`, (await call(A, "PATCH", `/${ids.exp}`, bad)).s === 400);
+    }
+    r = await call(A, "PATCH", `/${ids.chat}`, { correctedOutput: { action: "chitchat", reply: "Hello, corrected." } });
+    check("PATCH correctedOutput lưu và không đổi accepted", r.s === 200 && r.j.correctedOutput.reply === "Hello, corrected." && r.j.outcome === "accepted", r);
+    const eligibleBeforeCorrection = eligibleFor((await call(A, "GET", "/stats")).j, "expense");
+    r = await call(A, "PATCH", `/${ids.rej}`, { correctedOutput: { action: "chitchat", reply: "Corrected rejected row." } });
+    const eligibleAfterCorrection = eligibleFor((await call(A, "GET", "/stats")).j, "expense");
+    check("PATCH correction làm row rejected đủ điều kiện nhưng giữ outcome",
+      r.s === 200 && r.j.outcome === "rejected" && r.j.correctedOutput.reply === "Corrected rejected row."
+        && eligibleAfterCorrection === eligibleBeforeCorrection + 1, { patch: r.j, eligibleBeforeCorrection, eligibleAfterCorrection });
+    check("PATCH correction lỗi zod trả details", Array.isArray((await call(A, "PATCH", `/${ids.exp}`, {
+      correctedOutput: { action: "chitchat" },
+    })).j?.details));
     r = await call(A, "GET", `/${ids.exp}`); check("PATCH không đổi nội dung log", r.j.userInput === "chi 45k ăn trưa" && r.j.excludeFromTraining === true);
     await call(A, "POST", "/ingest", { logs: [rowExp] });
     check("ingest không reset exclude", (await call(A, "GET", `/${ids.exp}`)).j.excludeFromTraining === true);
-    r = await call(A, "GET", "/stats"); check("loại mẫu: eligible giảm 1", r.j.byAgent.find((x: any) => x.agent === "expense").eligible === base.exp, r.j);
     await call(A, "PATCH", `/${ids.exp}`, { excludeFromTraining: false });
 
     // export
     await call(A, "PATCH", `/${ids.cor}`, { excludeFromTraining: true });
     let ex2: string[] = [], c2: string | null = null;
     do { const p = await call(A, "GET", "/export" + (c2 ? `?cursor=${c2}` : "")); ex2.push(...p.j.items.map((i: any) => i.id)); c2 = p.j.nextCursor; } while (c2);
-    check("export: có exp/chat/fresh, không có rejected/bị loại", ex2.includes(ids.exp) && ex2.includes(ids.chat) && ex2.includes(ids.fresh) && !ex2.includes(ids.rej) && !ex2.includes(ids.cor), ex2.filter((i) => idList.includes(i)));
-    const first = (await call(A, "GET", "/export")).j.items[0]; check("export trả dòng đầy đủ", "messages" in first && "tools" in first && !("userId" in first));
+    check("export: correction cho phép rejected, vẫn loại cờ loại và correction bị loại", ex2.includes(ids.exp) && ex2.includes(ids.chat) && ex2.includes(ids.rej) && ex2.includes(ids.fresh) && !ex2.includes(ids.cor), ex2.filter((i) => idList.includes(i)));
+    const first = (await call(A, "GET", "/export")).j.items[0];
+    check("export trả dòng đầy đủ + trainingTarget", "messages" in first && "tools" in first && "trainingTarget" in first && !("userId" in first));
+    r = await call(A, "GET", `/export?route=LOCAL`);
+    check("export lọc route LOCAL", r.s === 200 && records(r.j.items).every((i) => i.route === "LOCAL"), records(r.j.items).map((i) => i.route));
+    check("export route không hợp lệ → 400", (await call(A, "GET", "/export?route=cloud")).s === 400);
 
     // --- route / cloudModel (migration 0009) ---
     const rLocal = { id: ids.rLocal, createdAt: ago(0.30), agent: "chat", userInput: "hi local", messages: msgs, parsedOutput: { action: "news" }, route: "LOCAL" };
@@ -166,6 +200,22 @@ async function main() {
     await call(A, "POST", "/ingest", { logs: [{ ...rCloud, route: "LOCAL", cloudModel: null }] });
     r = await call(A, "GET", `/${ids.rCloud}`); check("gửi lại có route mới: đổi theo (null tường minh xóa cloudModel)", r.j.route === "LOCAL" && r.j.cloudModel === null, r.j);
     await call(A, "POST", "/ingest", { logs: [rCloud] });
+    r = await call(A, "PATCH", `/${ids.rCloud}`, { correctedOutput: { action: "chitchat", reply: "Training reply." } });
+    const cloudPatch = r;
+    r = await call(A, "GET", `/${ids.rCloud}`);
+    check("PATCH dòng CLOUD: correction hợp lệ, outcome giữ nguyên", cloudPatch.s === 200 && r.j.route === "CLOUD" && r.j.outcome === "unknown", { patch: cloudPatch, detail: r.j });
+    r = await call(A, "GET", "/export?route=CLOUD");
+    const cloudExport = records(r.j.items).find((i) => i.id === ids.rCloud);
+    check("export route=CLOUD gồm correction mới, model cloud, và trainingTarget ưu tiên correctedOutput",
+      r.s === 200 && cloudExport?.route === "CLOUD" && cloudExport?.cloudModel === "openai/gpt-oss-120b"
+        && isRecord(cloudExport?.trainingTarget) && cloudExport.trainingTarget.reply === "Training reply.", cloudExport);
+    r = await call(A, "PATCH", `/${ids.rCloud}`, { correctedOutput: null });
+    check("PATCH correctedOutput:null xóa correction, giữ outcome", r.s === 200 && r.j.correctedOutput === null
+      && r.j.correctedAt === null && r.j.outcome === "unknown", r);
+    r = await call(A, "GET", "/export?route=CLOUD");
+    const cloudAfterClear = records(r.j.items).find((i) => i.id === ids.rCloud);
+    check("xóa correction khôi phục parsedOutput làm trainingTarget", cloudAfterClear?.trainingTarget !== undefined
+      && JSON.stringify(cloudAfterClear.trainingTarget) === JSON.stringify({ action: "chitchat" }), cloudAfterClear);
 
     // danh sách + bộ lọc
     r = await call(A, "GET", "?limit=200");
@@ -214,7 +264,7 @@ async function main() {
     check("fixture: tổng eligible", r.j.eligible === Object.values(fx.expectedEligible).reduce((a: number, b: any) => a + b, 0), r.j.eligible);
   } finally {
     await db.delete(agentLogs).where(inArray(agentLogs.id, Object.values(ids)));
-    await db.delete(users).where(eq(users.id, b.id));
+    await db.delete(users).where(inArray(users.id, [a.id, b.id]));
   }
   console.log(fails ? `\n${fails} FAIL` : "\nTẤT CẢ PASS");
   process.exit(fails ? 1 : 0);

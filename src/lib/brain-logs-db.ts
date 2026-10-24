@@ -1,5 +1,5 @@
 // Phần của nhật ký amber-brain có đụng DB: cột tóm tắt cho danh sách và điều kiện "đủ điều kiện làm mẫu".
-import { and, eq, getTableColumns, or, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, isNotNull, or, sql } from "drizzle-orm";
 import { agentLogs } from "@/db/schema";
 import { UNKNOWN_GRACE_DAYS } from "@/lib/brain-logs";
 
@@ -34,6 +34,7 @@ export const eligibleCondition = and(
   sql`${agentLogs.userInput} <> ''`,
   sql`coalesce(${agentLogs.correctedOutput}, ${agentLogs.parsedOutput}) is not null`,
   or(
+    isNotNull(agentLogs.correctedOutput),
     sql`${agentLogs.outcome} in ('accepted', 'corrected')`,
     and(
       eq(agentLogs.outcome, "unknown"),
