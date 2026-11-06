@@ -3,6 +3,11 @@ import { isoWeekday } from "@/lib/routine-stats";
 
 // Dự báo ngày xong của các khóa học của một môn. Hàm thuần — test ở study-forecast.test.ts.
 
+/** Hôm nay đã có buổi HỌC BÀI chưa (buổi ôn thẻ không tính) — có thì lịch dự báo bắt đầu từ ngày mai. */
+export function hasLessonToday(logs: readonly { logDate: string; activity: string }[], today: string): boolean {
+  return logs.some((l) => l.logDate === today && l.activity !== "CARD_REVIEW");
+}
+
 /** Số ngày lịch tối đa dò tới; vượt thì khóa chưa xong có finishDate null. */
 export const FORECAST_MAX_DAYS = 1100;
 

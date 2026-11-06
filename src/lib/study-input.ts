@@ -79,8 +79,12 @@ export const logSectionInputSchema = z.object({
   markDone: z.boolean().optional(),
 });
 
+// LESSON = học bài (mặc định, app cũ không gửi trường này); CARD_REVIEW = phút ôn thẻ từ vựng.
+export const studyLogActivitySchema = z.enum(["LESSON", "CARD_REVIEW"]);
+
 export const createLogSchema = z.object({
   subjectId: z.string(),
+  activity: studyLogActivitySchema.optional(),
   courseId: z.string().nullable().optional(),
   minutes,
   sections: z.array(logSectionInputSchema).max(MAX_SECTIONS).optional(),
@@ -89,6 +93,7 @@ export const createLogSchema = z.object({
 });
 
 export const patchLogSchema = z.object({
+  activity: studyLogActivitySchema.optional(), // chỉ để báo lỗi nếu cố đổi; gửi đúng giá trị hiện tại thì bỏ qua
   minutes: minutes.optional(),
   sections: z.array(logSectionInputSchema).max(MAX_SECTIONS).optional(),
   note: z.string().trim().max(2000).nullable().optional(),

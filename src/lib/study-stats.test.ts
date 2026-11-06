@@ -1,9 +1,9 @@
 // Test thống kê học tập — chạy: npm test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildStats, planDelta, progressPct, statsBounds, type StatsCourse, type StatsInput, type StatsLog } from "./study-stats";
+import { buildStats, CARD_REVIEW_COURSE_TITLE, REVIEW_COURSE_TITLE, planDelta, progressPct, statsBounds, type StatsCourse, type StatsInput, type StatsLog } from "./study-stats";
 
-const log = (logDate: string, minutes: number, o: Partial<StatsLog> = {}): StatsLog => ({ subjectId: "a", courseId: "c1", courseTitle: "Khóa 1", logDate, minutes, ...o });
+const log = (logDate: string, minutes: number, o: Partial<StatsLog> = {}): StatsLog => ({ subjectId: "a", courseId: "c1", courseTitle: "Khóa 1", logDate, minutes, activity: "LESSON", ...o });
 const course = (o: Partial<StatsCourse> = {}): StatsCourse => ({
   id: "c1", subjectId: "a", title: "Khóa 1", status: "ACTIVE", queuePosition: null, progressPct: 50,
   baselineFinishDate: "2026-10-20", forecastFinishDate: "2026-10-22", finishedDate: null, deltaDays: null, ...o,
@@ -128,4 +128,28 @@ test("progressPct", () => {
   assert.equal(progressPct("ACTIVE", { doneSections: 1, totalSections: 3, doneMinutes: 10, totalMinutes: 40 }), 25);
   assert.equal(progressPct("ACTIVE", { doneSections: 1, totalSections: 4, doneMinutes: 0, totalMinutes: 0 }), 25);
   assert.equal(progressPct("ACTIVE", { doneSections: 0, totalSections: 0, doneMinutes: 0, totalMinutes: 0 }), 0);
+});
+
+test("byCourse: buổi CARD_REVIEW thành mục riêng \"Ôn thẻ\", không gộp vào \"Ôn tập\"; hình dạng mục giữ nguyên", () => {
+  const card = (d: string, m: number) => log(d, m, { courseId: null, courseTitle: null, activity: "CARD_REVIEW" });
+  const s = buildStats(input({
+    logs: [log("2026-10-13", 10, { courseId: null, courseTitle: null }), card("2026-10-13", 15), card("2026-10-14", 5), log("2026-10-14", 30)],
+    firstLogDates: new Map([["a", "2026-10-13"]]),
+  }));
+  assert.deepEqual(s.byCourse, [
+    { courseId: "c1", title: "Khóa 1", minutes: 30, logCount: 1 },
+    { courseId: null, title: CARD_REVIEW_COURSE_TITLE, minutes: 20, logCount: 2 },
+    { courseId: null, title: REVIEW_COURSE_TITLE, minutes: 10, logCount: 1 },
+  ]);
+  assert.equal(CARD_REVIEW_COURSE_TITLE, "Ôn thẻ");
+});
+
+test("phút CARD_REVIEW vẫn tính vào tổng, trung bình, số ngày đạt mục tiêu và số buổi", () => {
+  const s = buildStats(input({
+    logs: [log("2026-10-14", 45), log("2026-10-14", 15, { courseId: null, courseTitle: null, activity: "CARD_REVIEW" })],
+    firstLogDates: new Map([["a", "2026-10-14"]]),
+  }));
+  assert.equal(s.totalMinutes, 60);
+  assert.equal(s.logCount, 2);
+  assert.equal(s.goalDays.met, 1); // mục tiêu 60: 45 học bài + 15 ôn thẻ
 });

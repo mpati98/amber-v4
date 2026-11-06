@@ -44,6 +44,12 @@ export const POST = withAuth(async (req, userId) => {
   const parsed = createLogSchema.safeParse(body);
   if (!parsed.success) return invalidBody(parsed.error);
   const d = parsed.data;
+  // Thiếu activity (app cũ) = LESSON. CARD_REVIEW không gắn khóa và không có phần.
+  const activity = d.activity ?? "LESSON";
+  if (activity === "CARD_REVIEW") {
+    if (d.courseId) return badRequest("card_review_no_course");
+    if (d.sections !== undefined) return badRequest("card_review_no_sections");
+  }
 
   const subject = await findOwnedSubject(db, d.subjectId, userId);
   if (!subject) return NextResponse.json({ error: "subject_not_found" }, { status: 404 });
@@ -63,7 +69,7 @@ export const POST = withAuth(async (req, userId) => {
     const result = await db.transaction(async (tx) => {
       const [log] = await tx
         .insert(studyLogs)
-        .values({ userId, subjectId: subject.id, courseId: course?.id ?? null, logDate: today, minutes: d.minutes, note: d.note || null })
+        .values({ userId, subjectId: subject.id, courseId: course?.id ?? null, logDate: today, minutes: d.minutes, note: d.note || null, activity })
         .returning({ id: studyLogs.id });
       await writeLogSections(tx, log.id, course?.id ?? null, sections);
       await applyDayRule(tx, userId, subject, today, d.stopForToday);
@@ -81,8 +87,8 @@ export const POST = withAuth(async (req, userId) => {
       userId,
       source: "TRA_DINH",
       action: "study_log.created",
-      title: `Học ${d.minutes} phút: ${subject.name}`,
-      metadata: { logId: result.log.id, subjectId: subject.id, courseId: course?.id ?? null, minutes: d.minutes },
+      title: `${activity === "CARD_REVIEW" ? "Ôn thẻ" : "Học"} ${d.minutes} phút: ${subject.name}`,
+      metadata: { logId: result.log.id, subjectId: subject.id, courseId: course?.id ?? null, minutes: d.minutes, ...(activity === "CARD_REVIEW" ? { activity } : {}) },
     });
     if (result.completed && course) {
       logActivity({ userId, source: "TRA_DINH", action: "study_course.completed", title: `Hoàn thành khóa học: ${course.title}`, metadata: { courseId: course.id, subjectId: subject.id } });

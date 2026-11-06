@@ -20,6 +20,7 @@ export async function logViews(dbx: DbLike, logIds: string[]) {
       logDate: studyLogs.logDate,
       minutes: studyLogs.minutes,
       note: studyLogs.note,
+      activity: studyLogs.activity,
       createdAt: studyLogs.createdAt,
     })
     .from(studyLogs)

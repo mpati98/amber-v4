@@ -21,6 +21,7 @@ export type ScheduleLog = {
   logDate: string;
   courseTitle: string | null;
   minutes: number;
+  activity: "LESSON" | "CARD_REVIEW";
   sections: { title: string; markedDone: boolean }[];
 };
 
@@ -80,7 +81,7 @@ export function buildSchedule(input: ScheduleInput) {
 
     const minutes = totals.get(date) ?? 0;
     minutesTotal += minutes;
-    const dayLogs = logs.filter((l) => l.logDate === date).map((l) => ({ id: l.id, courseTitle: l.courseTitle, minutes: l.minutes, sections: l.sections }));
+    const dayLogs = logs.filter((l) => l.logDate === date).map((l) => ({ id: l.id, courseTitle: l.courseTitle, minutes: l.minutes, activity: l.activity, sections: l.sections }));
     const past = {
       ...base,
       minutes,
@@ -94,8 +95,8 @@ export function buildSchedule(input: ScheduleInput) {
     };
     if (kind === "past") return past;
 
-    // Hôm nay: chỉ còn kế hoạch khi chưa có buổi nào (forecast đã tự bắt đầu từ ngày mai nếu hôm nay có log).
-    if (dayLogs.length > 0) return past;
+    // Hôm nay: chỉ còn kế hoạch khi chưa có buổi HỌC BÀI nào (forecast đã tự bắt đầu từ ngày mai nếu có). Buổi ôn thẻ không tính.
+    if (dayLogs.some((l) => l.activity !== "CARD_REVIEW")) return past;
     const items = isReviewDay ? [] : planned;
     plannedMinutes += items.reduce((n, i) => n + i.minutes, 0);
     return { ...past, plannedItems: items };

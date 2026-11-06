@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { and, asc, eq, inArray, isNotNull, isNull, max, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { studyCourseSections, studyCourses, studyLogs, studySubjects } from "@/db/schema";
-import { forecast } from "@/lib/study-forecast";
+import { forecast, hasLessonToday } from "@/lib/study-forecast";
 import { vnToday } from "@/lib/vn-time";
 
 // Logic dùng chung của khóa học Học tập (Trà Đình). Các hàm ghi nhận tx của db.transaction.
@@ -81,16 +81,16 @@ export async function forecastSubject(dbx: DbLike, subject: SubjectRow) {
         .orderBy(asc(studyCourseSections.position))
     : [];
   const today = vnToday();
-  const [todayLog] = await dbx
-    .select({ id: studyLogs.id })
+  // Chỉ buổi học bài mới đẩy lịch sang ngày mai; phút ôn thẻ (CARD_REVIEW) thì không.
+  const todayLogs = await dbx
+    .select({ logDate: studyLogs.logDate, activity: studyLogs.activity })
     .from(studyLogs)
-    .where(and(eq(studyLogs.subjectId, subject.id), eq(studyLogs.logDate, today)))
-    .limit(1);
+    .where(and(eq(studyLogs.subjectId, subject.id), eq(studyLogs.logDate, today)));
   return {
     courses,
     ...forecast({
       today,
-      startFromTomorrow: !!todayLog,
+      startFromTomorrow: hasLessonToday(todayLogs, today),
       videoMinutesPerDay: subject.videoMinutesPerDay,
       reviewWeekdays: subject.reviewWeekdays,
       courses: courses.map((c) => ({

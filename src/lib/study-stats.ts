@@ -7,10 +7,12 @@ import { datesBetween, dayDiff, lastQueueDelta, mondayOf } from "@/lib/study-ove
 /** Khoảng dài hơn số ngày này (chỉ với range=all) thì gom theo tuần. */
 export const WEEK_BUCKET_THRESHOLD_DAYS = 92;
 export const REVIEW_COURSE_TITLE = "Ôn tập";
+/** Buổi ôn thẻ từ vựng (CARD_REVIEW) thành mục riêng trong byCourse, không gộp vào "Ôn tập". */
+export const CARD_REVIEW_COURSE_TITLE = "Ôn thẻ";
 
 export type StatsRange = "7" | "30" | "all";
 
-export type StatsLog = { subjectId: string; courseId: string | null; courseTitle: string | null; logDate: string; minutes: number };
+export type StatsLog = { subjectId: string; courseId: string | null; courseTitle: string | null; logDate: string; minutes: number; activity: "LESSON" | "CARD_REVIEW" };
 export type StatsCourse = {
   id: string;
   subjectId: string;
@@ -103,12 +105,19 @@ export function buildStats(input: StatsInput) {
     }
   }
 
-  const courseAgg = new Map<string | null, { title: string; minutes: number; logCount: number }>();
+  // Khoá gộp: id khóa; buổi ôn không khóa → "review"; buổi ôn thẻ → "cards". Cả hai mục không khóa vẫn trả courseId null.
+  const courseAgg = new Map<string, { courseId: string | null; title: string; minutes: number; logCount: number }>();
   for (const l of logs) {
-    const cur = courseAgg.get(l.courseId) ?? { title: l.courseId === null ? REVIEW_COURSE_TITLE : (l.courseTitle ?? ""), minutes: 0, logCount: 0 };
-    courseAgg.set(l.courseId, { ...cur, minutes: cur.minutes + l.minutes, logCount: cur.logCount + 1 });
+    const key = l.activity === "CARD_REVIEW" ? "cards" : (l.courseId ?? "review");
+    const cur = courseAgg.get(key) ?? {
+      courseId: l.activity === "CARD_REVIEW" ? null : l.courseId,
+      title: l.activity === "CARD_REVIEW" ? CARD_REVIEW_COURSE_TITLE : l.courseId === null ? REVIEW_COURSE_TITLE : (l.courseTitle ?? ""),
+      minutes: 0,
+      logCount: 0,
+    };
+    courseAgg.set(key, { ...cur, minutes: cur.minutes + l.minutes, logCount: cur.logCount + 1 });
   }
-  const byCourse = [...courseAgg].map(([courseId, v]) => ({ courseId, ...v })).sort((a, b) => b.minutes - a.minutes || a.title.localeCompare(b.title));
+  const byCourse = [...courseAgg.values()].sort((a, b) => b.minutes - a.minutes || a.title.localeCompare(b.title));
 
   let longestDay: { date: string; minutes: number } | null = null;
   for (const [date, minutes] of byDay) {

@@ -33,7 +33,7 @@ export const GET = withAuth(async (req, userId) => {
 
   const logs = ids.length
     ? await db
-        .select({ subjectId: studyLogs.subjectId, courseId: studyLogs.courseId, courseTitle: studyCourses.title, logDate: studyLogs.logDate, minutes: studyLogs.minutes })
+        .select({ subjectId: studyLogs.subjectId, courseId: studyLogs.courseId, courseTitle: studyCourses.title, logDate: studyLogs.logDate, minutes: studyLogs.minutes, activity: studyLogs.activity })
         .from(studyLogs)
         .leftJoin(studyCourses, eq(studyCourses.id, studyLogs.courseId))
         .where(and(inArray(studyLogs.subjectId, ids), between(studyLogs.logDate, from, to)))

@@ -11,7 +11,7 @@ const item = (minutes: number) => ({ courseId: "c1", sectionId: "s", title: "P",
 const input = (o: Partial<ScheduleInput> = {}): ScheduleInput => ({
   today: "2026-10-14", from: "2026-10-12", to: "2026-10-18", goalMinutes: 60, reviewWeekdays: [7],
   totals: new Map([["2026-10-12", 90], ["2026-10-13", 30]]), reasons: new Map([["2026-10-13", { code: "BUSY", text: null }]]),
-  logs: [{ id: "l1", logDate: "2026-10-13", courseTitle: "Khóa 1", minutes: 30, sections: [{ title: "P1", markedDone: true }] }],
+  logs: [{ id: "l1", logDate: "2026-10-13", courseTitle: "Khóa 1", minutes: 30, activity: "LESSON", sections: [{ title: "P1", markedDone: true }] }],
   courses: [done, live],
   forecastDays: [
     { date: "2026-10-14", items: [item(40)] }, { date: "2026-10-15", items: [item(40)] },
@@ -40,7 +40,7 @@ test("quá khứ: minutes, done, extraMinutes, reason, logs", () => {
   assert.equal(d13.done, false);
   assert.equal(d13.extraMinutes, 0);
   assert.deepEqual(d13.reason, { code: "BUSY", text: null });
-  assert.deepEqual(d13.logs, [{ id: "l1", courseTitle: "Khóa 1", minutes: 30, sections: [{ title: "P1", markedDone: true }] }]);
+  assert.deepEqual(d13.logs, [{ id: "l1", courseTitle: "Khóa 1", minutes: 30, activity: "LESSON", sections: [{ title: "P1", markedDone: true }] }]);
   assert.equal("plannedItems" in d13, false);
 });
 
@@ -51,11 +51,35 @@ test("hôm nay chưa có log → có plannedItems; có log → không có planne
   assert.equal(empty.plannedItems[0].courseTitle, "Khóa 1");
   const withLog = day(buildSchedule(input({
     totals: new Map([["2026-10-14", 20]]),
-    logs: [{ id: "l2", logDate: "2026-10-14", courseTitle: null, minutes: 20, sections: [] }],
+    logs: [{ id: "l2", logDate: "2026-10-14", courseTitle: null, minutes: 20, activity: "LESSON", sections: [] }],
     forecastDays: [{ date: "2026-10-15", items: [item(40)] }],
   })), "2026-10-14");
   assert.equal(withLog.minutes, 20);
   assert.equal("plannedItems" in withLog, false);
+});
+
+test("hôm nay chỉ có buổi ôn thẻ (CARD_REVIEW): vẫn còn kế hoạch học bài, phút ôn thẻ vẫn tính vào ngày", () => {
+  const r = day(buildSchedule(input({
+    totals: new Map([["2026-10-14", 15]]),
+    logs: [{ id: "l3", logDate: "2026-10-14", courseTitle: null, minutes: 15, activity: "CARD_REVIEW", sections: [] }],
+    forecastDays: [{ date: "2026-10-14", items: [item(40)] }],
+  })), "2026-10-14");
+  assert.equal(r.minutes, 15);
+  assert.deepEqual(r.logs, [{ id: "l3", courseTitle: null, minutes: 15, activity: "CARD_REVIEW", sections: [] }]);
+  assert.equal(r.plannedItems.length, 1);
+});
+
+test("hôm nay có buổi học bài lẫn ôn thẻ: không còn kế hoạch (như trước)", () => {
+  const r = day(buildSchedule(input({
+    totals: new Map([["2026-10-14", 35]]),
+    logs: [
+      { id: "l4", logDate: "2026-10-14", courseTitle: "Khóa 1", minutes: 20, activity: "LESSON", sections: [] },
+      { id: "l5", logDate: "2026-10-14", courseTitle: null, minutes: 15, activity: "CARD_REVIEW", sections: [] },
+    ],
+    forecastDays: [{ date: "2026-10-14", items: [item(40)] }],
+  })), "2026-10-14");
+  assert.equal("plannedItems" in r, false);
+  assert.equal(r.logs.length, 2);
 });
 
 test("ngày ôn tập (planned): plannedItems rỗng dù forecast có", () => {

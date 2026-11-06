@@ -1,7 +1,7 @@
 // Test dự báo ngày xong khóa học — chạy: npm test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FORECAST_MAX_DAYS, forecast } from "./study-forecast";
+import { FORECAST_MAX_DAYS, forecast, hasLessonToday } from "./study-forecast";
 
 // 2026-10-12 là thứ Hai; 2026-10-18 là Chủ nhật.
 const base = { today: "2026-10-12", startFromTomorrow: false, videoMinutesPerDay: 40, reviewWeekdays: [7] as number[] };
@@ -95,4 +95,21 @@ test("mọi ngày đều là ngày ôn → không xếp được gì", () => {
   const r = forecast({ ...base, reviewWeekdays: [1, 2, 3, 4, 5, 6, 7], courses: [{ id: "c1", sections: [sec("a", 10)] }] });
   assert.deepEqual(r.days, []);
   assert.equal(r.finishDates.c1, null);
+});
+
+test("hasLessonToday: chỉ buổi học bài hôm nay mới đẩy lịch sang ngày mai", () => {
+  const today = "2026-10-12";
+  assert.equal(hasLessonToday([], today), false);
+  assert.equal(hasLessonToday([{ logDate: today, activity: "LESSON" }], today), true);
+  assert.equal(hasLessonToday([{ logDate: today, activity: "CARD_REVIEW" }], today), false);
+  assert.equal(hasLessonToday([{ logDate: today, activity: "CARD_REVIEW" }, { logDate: today, activity: "LESSON" }], today), true);
+  assert.equal(hasLessonToday([{ logDate: "2026-10-11", activity: "LESSON" }], today), false); // log ngày khác không tính
+});
+
+test("lịch bắt đầu hôm nay khi hôm nay chỉ có buổi ôn thẻ, từ ngày mai khi có buổi học bài", () => {
+  const today = "2026-10-12";
+  const courses = [{ id: "c1", sections: [sec("a", 30)] }];
+  const run = (logs: { logDate: string; activity: string }[]) => forecast({ ...base, today, startFromTomorrow: hasLessonToday(logs, today), courses });
+  assert.equal(run([{ logDate: today, activity: "CARD_REVIEW" }]).days[0].date, today);
+  assert.equal(run([{ logDate: today, activity: "LESSON" }]).days[0].date, "2026-10-13");
 });

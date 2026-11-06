@@ -9,6 +9,7 @@ import { db } from "@/db";
 import { routines, studyLogs, studySubjects, users } from "@/db/schema";
 import { signAccessToken } from "@/lib/mobile-auth";
 import { addDaysIso } from "@/lib/deadline-alert";
+import { isoWeekday } from "@/lib/routine-stats";
 import { vnToday } from "@/lib/vn-time";
 
 const host = (u?: string) => { try { return new URL(u ?? "").hostname; } catch { return ""; } };
@@ -174,6 +175,72 @@ async function main() {
     const lst2 = (await R("GET", "")).j.find((r: any) => r.id === rid);
     check("đã có lý do → hết khỏi pendingReasonDates", !lst2.pendingReasonDates.includes(yesterday) && lst2.pendingReasonDates.length === 2, lst2.pendingReasonDates);
     check("DELETE lý do", (await H("DELETE", `/subjects/${sub1}/reasons/${yesterday}`)).j?.ok === true && (await R("GET", "")).j.find((r: any) => r.id === rid).pendingReasonDates.includes(yesterday));
+
+    // ---- CARD_REVIEW (phút ôn thẻ từ vựng) ----
+    const old = await H("POST", "/logs", { subjectId: sub3, minutes: 5 });
+    check("app cũ: POST không có activity → LESSON (response và DB)", old.s === 201 && old.j.log.activity === "LESSON" && (await db.select().from(studyLogs).where(eq(studyLogs.id, old.j.log.id)))[0].activity === "LESSON", old);
+    check("POST activity LESSON tường minh vẫn được; activity lạ → 400", (await H("POST", "/logs", { subjectId: sub3, minutes: 5, activity: "LESSON" })).j?.log?.activity === "LESSON" && (await H("POST", "/logs", { subjectId: sub3, minutes: 5, activity: "BOGUS" })).s === 400);
+    check("buổi có khóa tạo trước đó (không gửi activity) là LESSON", m2.j.log.activity === "LESSON");
+
+    // Môn có thứ ôn cách hôm nay 3 ngày → hôm nay và ngày mai đều là ngày học; 2 phần × 40' → dự kiến xong ngày mai (nếu bắt đầu hôm nay).
+    const sc = (await H("POST", "/subjects", { name: "Ôn thẻ", dailyGoalMinutes: 60, reviewWeekdays: [isoWeekday(addDaysIso(today, 3))] })).j.id;
+    const crs = (await H("POST", "/courses", { subjectId: sc, title: "Khóa dự báo", status: "ACTIVE", sectionsText: "Q1 40min\nQ2 40min" })).j;
+    const fin = async () => (await H("GET", `/courses/${crs.id}`)).j.forecastFinishDate;
+    const todayRow = async () => (await H("GET", `/schedule?subjectId=${sc}&from=${today}&to=${addDaysIso(today, 3)}`)).j.days.find((d: any) => d.date === today);
+    const F0 = await fin();
+    check("dự báo gốc: bắt đầu hôm nay → xong ngày mai", F0 === addDaysIso(today, 1), F0);
+
+    const c1 = await H("POST", "/logs", { subjectId: sc, minutes: 15, activity: "CARD_REVIEW", note: "ôn 10 thẻ" });
+    check("CARD_REVIEW: 201, activity, không khóa, không phần, today.minutes 15, chưa done", c1.s === 201 && c1.j.log.activity === "CARD_REVIEW" && c1.j.log.courseId === null && c1.j.log.courseTitle === null && c1.j.log.sections.length === 0 && c1.j.log.note === "ôn 10 thẻ" && c1.j.log.logDate === today && c1.j.today.minutes === 15 && c1.j.today.done === false && c1.j.course === null, c1);
+    check("dự báo khóa KHÔNG đổi sau buổi CARD_REVIEW hôm nay", (await fin()) === F0, await fin());
+    const t1 = await todayRow();
+    check("lịch hôm nay có CARD_REVIEW: log kèm activity + courseTitle null, minutes 15, VẪN còn plannedItems", t1.minutes === 15 && t1.logs.length === 1 && t1.logs[0].activity === "CARD_REVIEW" && t1.logs[0].courseTitle === null && Array.isArray(t1.plannedItems) && t1.plannedItems.length > 0, t1);
+    const c2 = await H("POST", "/logs", { subjectId: sc, minutes: 10, activity: "CARD_REVIEW" });
+    check("nhiều buổi CARD_REVIEW mỗi ngày: tổng 25", c2.s === 201 && c2.j.today.minutes === 25 && (await H("GET", `/logs?subjectId=${sc}&from=${today}&to=${today}`)).j.filter((l: any) => l.activity === "CARD_REVIEW").length === 2);
+    const pc = await H("PATCH", `/logs/${c2.j.log.id}`, { minutes: 5, note: "sửa" });
+    check("PATCH CARD_REVIEW: sửa minutes + note, activity giữ nguyên, tổng ngày 20", pc.s === 200 && pc.j.log.minutes === 5 && pc.j.log.note === "sửa" && pc.j.log.activity === "CARD_REVIEW" && pc.j.today.minutes === 20, pc);
+    check("PATCH activity sang LESSON → 400 activity_locked, không đổi", (await H("PATCH", `/logs/${c2.j.log.id}`, { activity: "LESSON", minutes: 9 })).j?.error === "activity_locked" && (await db.select().from(studyLogs).where(eq(studyLogs.id, c2.j.log.id)))[0].minutes === 5);
+    check("PATCH gửi đúng activity hiện tại + minutes → OK; chỉ activity → empty_patch", (await H("PATCH", `/logs/${c2.j.log.id}`, { activity: "CARD_REVIEW", minutes: 6 })).s === 200 && (await H("PATCH", `/logs/${c2.j.log.id}`, { activity: "CARD_REVIEW" })).j?.error === "empty_patch");
+    check("PATCH CARD_REVIEW + courseId / sections → 400", (await H("PATCH", `/logs/${c2.j.log.id}`, { minutes: 6, courseId: crs.id })).j?.error === "card_review_no_course" && (await H("PATCH", `/logs/${c2.j.log.id}`, { sections: [{ sectionId: crs.sections[0].id }] })).j?.error === "card_review_no_sections" && (await H("PATCH", `/logs/${c2.j.log.id}`, { sections: [] })).j?.error === "card_review_no_sections");
+    check("PATCH CARD_REVIEW minutes 0 / 1441 → 400", (await H("PATCH", `/logs/${c2.j.log.id}`, { minutes: 0 })).s === 400 && (await H("PATCH", `/logs/${c2.j.log.id}`, { minutes: 1441 })).s === 400);
+    const [oldCard] = await db.insert(studyLogs).values({ userId: a.id, subjectId: sc, logDate: yesterday, minutes: 5, activity: "CARD_REVIEW" }).returning({ id: studyLogs.id });
+    check("PATCH / DELETE CARD_REVIEW của hôm qua → not_today", (await H("PATCH", `/logs/${oldCard.id}`, { minutes: 6 })).j?.error === "not_today" && (await H("DELETE", `/logs/${oldCard.id}`)).j?.error === "not_today");
+    await db.delete(studyLogs).where(eq(studyLogs.id, oldCard.id));
+    check("POST CARD_REVIEW + courseId / sections → 400", (await H("POST", "/logs", { subjectId: sc, minutes: 5, activity: "CARD_REVIEW", courseId: crs.id })).j?.error === "card_review_no_course" && (await H("POST", "/logs", { subjectId: sc, minutes: 5, activity: "CARD_REVIEW", sections: [{ sectionId: crs.sections[0].id }] })).j?.error === "card_review_no_sections" && (await H("POST", "/logs", { subjectId: sc, minutes: 5, activity: "CARD_REVIEW", sections: [] })).j?.error === "card_review_no_sections");
+    check("POST CARD_REVIEW minutes 0 / 1441 / thiếu → 400; môn user khác → 404", (await H("POST", "/logs", { subjectId: sc, minutes: 0, activity: "CARD_REVIEW" })).s === 400 && (await H("POST", "/logs", { subjectId: sc, minutes: 1441, activity: "CARD_REVIEW" })).s === 400 && (await H("POST", "/logs", { subjectId: sc, activity: "CARD_REVIEW" })).s === 400 && (await H("POST", "/logs", { subjectId: sc, minutes: 5, activity: "CARD_REVIEW" }, B)).s === 404);
+    check("lỗi 400 không tạo log (còn đúng 2 buổi ôn thẻ)", (await logCount(sc)) === 2);
+    const dc = await H("DELETE", `/logs/${c2.j.log.id}`);
+    check("DELETE CARD_REVIEW hôm nay: {ok, today} và tổng ngày về 15", dc.s === 200 && dc.j.ok === true && dc.j.today.minutes === 15, dc);
+
+    // 45' học bài + 15' ôn thẻ = 60' → đạt mục tiêu 60'
+    const ls = await H("POST", "/logs", { subjectId: sc, minutes: 45, note: "học bài" });
+    check("45 LESSON + 15 CARD_REVIEW = 60 → today.done", ls.s === 201 && ls.j.log.activity === "LESSON" && ls.j.today.minutes === 60 && ls.j.today.done === true && ls.j.today.reason === null, ls.j.today);
+    check("dự báo dời sang ngày mai sau buổi LESSON (như trước)", (await fin()) === addDaysIso(today, 2), await fin());
+    const t2 = await todayRow();
+    check("lịch hôm nay: minutes 60, done, 2 buổi (đủ activity), không còn plannedItems", t2.minutes === 60 && t2.done === true && t2.logs.map((l: any) => l.activity).sort().join() === "CARD_REVIEW,LESSON" && !("plannedItems" in t2), t2);
+    const ovr = (await H("GET", "/overview")).j;
+    const so = ovr.subjects.find((x: any) => x.subjectId === sc);
+    check("overview: today.minutes 60, done, logCount 2 (đếm cả buổi ôn thẻ)", so.today.minutes === 60 && so.today.done === true && so.today.logCount === 2, so.today);
+    check("overview: tổng tuần của môn có 60'", ovr.week.bySubject.find((x: any) => x.subjectId === sc).minutes === 60 && ovr.week.days.find((d: any) => d.date === today).minutes >= 60);
+    const stc = (await H("GET", `/stats?subjectId=${sc}&range=7`)).j;
+    check("stats byCourse: mục \"Ôn thẻ\" riêng (15'), \"Ôn tập\" riêng (45'), cùng hình dạng", stc.byCourse.length === 2 && JSON.stringify(stc.byCourse.find((c: any) => c.title === "Ôn thẻ")) === JSON.stringify({ courseId: null, title: "Ôn thẻ", minutes: 15, logCount: 1 }) && JSON.stringify(stc.byCourse.find((c: any) => c.title === "Ôn tập")) === JSON.stringify({ courseId: null, title: "Ôn tập", minutes: 45, logCount: 1 }), stc.byCourse);
+    check("stats: tổng 60', 2 buổi, đạt mục tiêu 1/1 ngày", stc.totalMinutes === 60 && stc.logCount === 2 && stc.goalDays.met === 1, [stc.totalMinutes, stc.logCount, stc.goalDays]);
+    check("chi tiết khóa vẫn đọc được (recentLogs không chứa buổi không khóa)", (await H("GET", `/courses/${crs.id}`)).j.recentLogs.length === 0);
+
+    // routine STUDY: ngày chỉ có phút CARD_REVIEW mà đạt mục tiêu vẫn tính là xong, và vào chuỗi
+    const sr = (await H("POST", "/subjects", { name: "Chỉ ôn thẻ", dailyGoalMinutes: 60 })).j.id;
+    const rs = await R("POST", "", { name: "Ôn thẻ mỗi ngày", kind: "STUDY", studySubjectId: sr });
+    check("routine STUDY mới: chưa có phút nào", rs.s === 201 && rs.j.todayMinutes === 0 && rs.j.doneToday === false && rs.j.streak === 0, rs.j);
+    await db.insert(studyLogs).values({ userId: a.id, subjectId: sr, logDate: yesterday, minutes: 60, activity: "CARD_REVIEW" });
+    await H("POST", "/logs", { subjectId: sr, minutes: 40, activity: "CARD_REVIEW" });
+    const midRt = (await R("GET", "")).j.find((r: any) => r.id === rs.j.id);
+    check("hôm nay 40' CARD_REVIEW (chưa đủ): chưa xong, chuỗi vẫn tính hôm qua (1) — hôm nay chưa đủ không làm chuỗi về 0", midRt.todayMinutes === 40 && midRt.doneToday === false && midRt.streak === 1 && midRt.last7[5].done === true, midRt);
+    await H("POST", "/logs", { subjectId: sr, minutes: 20, activity: "CARD_REVIEW" });
+    const rt = (await R("GET", "")).j.find((r: any) => r.id === rs.j.id);
+    check("hôm nay 60' chỉ CARD_REVIEW: todayMinutes 60, doneToday, chuỗi 2 (hôm qua + hôm nay), last7 đủ", rt.todayMinutes === 60 && rt.doneToday === true && rt.streak === 2 && rt.last7[6].done === true && rt.last7[5].done === true && rt.pendingReasonDates.length === 0, rt);
+    check("lý do cho ngày chỉ có CARD_REVIEW đạt mục tiêu → goal_met", (await H("PUT", `/subjects/${sr}/reasons/${today}`, { code: "BUSY" })).j?.error === "goal_met" && (await H("PUT", `/subjects/${sr}/reasons/${yesterday}`, { code: "BUSY" })).j?.error === "goal_met");
+    const gAll = (await H("GET", `/logs?subjectId=${sr}&from=${yesterday}&to=${today}`)).j;
+    check("GET /logs: mọi buổi có activity (CARD_REVIEW cho môn này)", gAll.length === 3 && gAll.every((l: any) => l.activity === "CARD_REVIEW" && l.courseId === null && l.courseTitle === null), gAll);
 
     // ---- dạng cũ CHECK / WORKOUT ----
     const ck = (await R("GET", "")).j.find((r: any) => r.id === chk.id);
