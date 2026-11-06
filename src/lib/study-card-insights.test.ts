@@ -1,7 +1,7 @@
 // Test thống kê nhóm khó — chạy: npm test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildInsights, type InsightCard, type InsightReview } from "./study-card-insights";
+import { buildInsights, countTopics, lessonLabel, periodStart, type InsightCard, type InsightReview } from "./study-card-insights";
 
 let n = 0;
 const card = (over: Partial<InsightCard> = {}): InsightCard => ({ id: `c${String(++n).padStart(4, "0")}`, kind: "COLLOCATION", topics: [], sourceLogId: null, notYetCount: 0, reviewCount: 0, ...over });
@@ -83,4 +83,22 @@ test("đầu vào rỗng: không chia cho 0, mọi mảng rỗng", () => {
 test("nhóm không có thẻ nào thì không sinh ra; tỷ lệ luôn hữu hạn", () => {
   const r = run(many(10, { notYetCount: 1, topics: ["a"] }));
   for (const g of [...r.byKind, ...r.byTopic]) assert.ok(Number.isFinite(g.rate) && g.rate <= 1);
+});
+
+test("lessonLabel: dd/MM · khóa; không khóa → Ôn tập; buổi ôn thẻ → Ôn thẻ", () => {
+  assert.equal(lessonLabel("2026-11-03", "Khóa A", "LESSON"), "03/11 \u00b7 Khóa A");
+  assert.equal(lessonLabel("2026-11-03", null, "LESSON"), "03/11 \u00b7 Ôn tập");
+  assert.equal(lessonLabel("2026-01-09", null, "CARD_REVIEW"), "09/01 \u00b7 Ôn thẻ");
+});
+
+test("periodStart: 7 ngày gần nhất tính cả hôm nay, theo 00:00 giờ VN", () => {
+  assert.equal(periodStart("2026-11-06", 7).toISOString(), "2026-10-30T17:00:00.000Z"); // 31/10 00:00 VN (06/11 − 6 ngày)
+  assert.equal(periodStart("2026-11-06", 30).toISOString(), "2026-10-07T17:00:00.000Z"); // 08/10 00:00 VN
+  assert.equal(periodStart("2026-01-03", 7).toISOString(), "2025-12-27T17:00:00.000Z"); // qua ranh giới năm
+});
+
+test("countTopics: mỗi thẻ một lần cho mỗi chủ đề, nhiều thẻ trước rồi theo chữ cái", () => {
+  const r = countTopics([{ topics: ["travel", "work"] }, { topics: ["work", "work"] }, { topics: ["beta"] }, { topics: ["alpha"] }, { topics: [] }]);
+  assert.deepEqual(r, [{ topic: "work", cards: 2 }, { topic: "alpha", cards: 1 }, { topic: "beta", cards: 1 }, { topic: "travel", cards: 1 }]);
+  assert.deepEqual(countTopics([]), []);
 });

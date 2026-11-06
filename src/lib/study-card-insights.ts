@@ -1,3 +1,7 @@
+import { addDaysIso } from "@/lib/deadline-alert";
+import { CARD_REVIEW_COURSE_TITLE, REVIEW_COURSE_TITLE } from "@/lib/study-stats";
+import { vnDayStart } from "@/lib/vn-time";
+
 // Thống kê nhóm khó của thẻ từ vựng (mục 7 của kế hoạch). Hàm thuần — test ở study-card-insights.test.ts.
 
 /** Nhóm chỉ hiện khi có ít nhất chừng này thẻ từng bị Chưa nhớ. */
@@ -54,4 +58,25 @@ export function buildInsights(input: { cards: readonly InsightCard[]; reviews: r
       .slice(0, HARDEST_CARDS_LIMIT)
       .map((c) => ({ cardId: c.id, notYetCount: c.notYetCount, reviewCount: c.reviewCount })),
   };
+}
+
+/** Nhãn nhóm theo buổi học: "dd/MM · tên khóa"; buổi không khóa → "Ôn tập" (hoặc "Ôn thẻ" nếu là buổi ôn thẻ). */
+export function lessonLabel(logDate: string, courseTitle: string | null, activity: string): string {
+  const [, month, day] = logDate.split("-");
+  const what = courseTitle ?? (activity === "CARD_REVIEW" ? CARD_REVIEW_COURSE_TITLE : REVIEW_COURSE_TITLE);
+  return `${day}/${month} · ${what}`;
+}
+
+/** Đầu kỳ của [days] ngày gần nhất tính cả hôm nay (00:00 giờ VN của ngày today − (days − 1)). */
+export function periodStart(today: string, days: number): Date {
+  return vnDayStart(addDaysIso(today, -(days - 1)));
+}
+
+/** Mỗi chủ đề có bao nhiêu thẻ (một thẻ tính một lần cho mỗi chủ đề); nhiều thẻ trước, bằng nhau thì theo chữ cái. */
+export function countTopics(cards: readonly { topics: readonly string[] }[]): { topic: string; cards: number }[] {
+  const counts = new Map<string, number>();
+  for (const c of cards) for (const t of new Set(c.topics)) counts.set(t, (counts.get(t) ?? 0) + 1);
+  return [...counts]
+    .map(([topic, n]) => ({ topic, cards: n }))
+    .sort((a, b) => b.cards - a.cards || (a.topic < b.topic ? -1 : a.topic > b.topic ? 1 : 0));
 }
