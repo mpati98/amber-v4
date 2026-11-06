@@ -1,6 +1,6 @@
 # Trà Đình – Kho thẻ từ vựng: thiết kế và kế hoạch tích hợp vào Amber v4
 
-Lập ngày 04/11/2026; chốt thiết kế ngày 04/11/2026 (bản 8, bước 1 đến 9 xong trên dev, chờ thử tay và production). Vị trí trong repo: `amber-v4/docs/tra-dinh-the-tu-vung-ke-hoach.md`, cùng chỗ với hai kế hoạch Trà Đình và Nghị Sự Đường. Mockup tham chiếu: canvas "Trà Đình — Kho thẻ từ vựng" (6 artboard: 1 Ôn thẻ mặt trước, 2 Ôn thẻ mặt sau, 3 Kho thẻ, 4 Nhập thẻ từ Claude, 5 Thống kê nhóm khó, 6 Kết thúc phiên ôn).
+Lập ngày 04/11/2026; chốt thiết kế ngày 04/11/2026 (bản 9, đã lên production 06/11, chờ thử tay trên iPhone và tổng kết). Vị trí trong repo: `amber-v4/docs/tra-dinh-the-tu-vung-ke-hoach.md`, cùng chỗ với hai kế hoạch Trà Đình và Nghị Sự Đường. Mockup tham chiếu: canvas "Trà Đình — Kho thẻ từ vựng" (6 artboard: 1 Ôn thẻ mặt trước, 2 Ôn thẻ mặt sau, 3 Kho thẻ, 4 Nhập thẻ từ Claude, 5 Thống kê nhóm khó, 6 Kết thúc phiên ôn).
 
 Phạm vi: kho cụm từ, ôn lặp lại ngắt quãng, ghi phút ôn thẻ và thống kê nhóm khó, nằm trong phần Học tập của Trà Đình, gắn với môn học và buổi học đã có. Không gồm: tóm tắt transcript bằng Claude (làm ngoài app, dán kết quả vào), nhật ký speaking/writing, lịch hai khóa Udemy, nhập thẻ qua amber-brain, luyện chat AI.
 
@@ -133,13 +133,17 @@ Mọi bảng có `user_id` (FK users, cascade); thêm các bảng mới vào `ta
 | 6 | API insights và chủ đề | backend | xong 06/11, cd390ce |
 | 7 | Flutter: kho thẻ, thêm/sửa thẻ, nhập thẻ | Flutter | xong 06/11, 776e60d |
 | 8 | Flutter: ôn thẻ, kết thúc phiên và nhập phút, khối ở Tổng quan | Flutter | xong 06/11: 8a 6291dfe (ôn thẻ, kết thúc phiên), 8b 5dcb6ff (khối tổng quan, nhãn "Ôn thẻ", form buổi ôn thẻ, chọn buổi học, sửa khoá thống kê) |
-| 9 | Flutter: thống kê nhóm khó và nút sao chép cho Claude (kèm sửa tràn hàng TodayCard) | Flutter | xong trên dev 06/11, chờ commit |
-| 10 | Contract test với backend dev; người dùng thử tay trên dev | Flutter | |
-| 11 | Production: kiểm tra `drizzle.__drizzle_migrations`, người dùng tạo nhánh Neon, migrate, deploy backend rồi Flutter, thử trên iPhone | cả hai | |
+| 9 | Flutter: thống kê nhóm khó và nút sao chép cho Claude (kèm sửa tràn hàng TodayCard) | Flutter | xong 06/11, 9d40500 |
+| 10 | Contract test với backend dev; người dùng thử tay | Flutter | contract test xong (5/5 trên dev). Thử tay trên dev được bỏ qua, thử thẳng trên iPhone production |
+| 11 | Production: kiểm tra `drizzle.__drizzle_migrations`, migrate, deploy backend rồi Flutter, thử trên iPhone | cả hai | xong 06/11: migrate 0011 lúc 16:12 UTC (không tạo nhánh Neon, dựa vào khôi phục theo thời điểm, mốc 16:12:11 UTC); backend `dpl_8iQN7PQ4QVvsvwzinxXeyCfThF3R` (1942261), rollback `dpl_ALbgRnUGVcT1YAqT4M7YC8FEVYxE`; Flutter `dpl_BETF3w7jAYTj2X93kpUELbq99WC6` (9d40500), rollback `dpl_CJiB92WeSeYdNi59umAQzB5RNMRy`. Thử trên iPhone: đang làm |
 | 12 | Tổng kết vào `CLAUDE.md` | cả hai | |
 
 ## 12. Điều chỉnh sau nếu cần
 
+- Hiện nguồn buổi học ở mặt sau thẻ ("Nguồn: buổi 04/11 · ..."): API hàng ôn mới trả `sourceLogId`, chưa trả nhãn.
+- Màn thống kê: trạng thái riêng cho môn chưa có thẻ nào (cần số thẻ của môn).
+- Lưu vị trí thẻ trong kế hoạch ngày (cột `position`, migration mới) nếu cần giữ đúng thứ tự khó và ngẫu nhiên.
+- Gom các chỗ giao diện lệch mockup sau khi thử trên iPhone (agent không mở được canvas nên build từ mô tả chữ).
 - Phân bố 20 thẻ (thứ tự ưu tiên, tỷ lệ 70/20/10, đặt sàn thẻ mới mỗi ngày).
 - Thẻ và lượt ôn là dữ liệu học tập trong `study_*`, chưa đẩy vào `agent_logs`; dữ liệu huấn luyện cho vai gia sư (`tutor`) bàn khi có speaking/writing.
 - Bảng liên kết giữa các thẻ (`study_card_links`), đo thời gian trả lời mỗi thẻ, kéo-thả, loại thẻ nghe/phát âm.
