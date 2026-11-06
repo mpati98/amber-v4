@@ -6,7 +6,7 @@ import { withAuth } from "@/lib/withAuth";
 import { badRequest, createCardSchema, invalidBody, listCardsQuerySchema, readJson } from "@/lib/study-input";
 import { findOwnedSubject, guardStudy } from "@/lib/study-courses";
 import { CARD_KINDS, validateCard, type CardKind } from "@/lib/study-card-parse";
-import { cardView, cursorTsSql, decodeCursor, encodeCursor, findSourceLog, invalidCard, likePattern } from "@/lib/study-cards";
+import { cardCounts, cardView, cursorTsSql, decodeCursor, encodeCursor, findSourceLog, invalidCard, likePattern } from "@/lib/study-cards";
 
 // Kho thẻ: danh sách (lọc + phân trang) kèm số đếm theo giai đoạn; thêm một thẻ.
 export const GET = withAuth(async (req, userId) => {
@@ -40,22 +40,9 @@ export const GET = withAuth(async (req, userId) => {
     .limit(limit + 1);
   const page = rows.slice(0, limit);
 
-  // Số đếm của cả môn, không phụ thuộc các bộ lọc.
-  const stageRows = await db
-    .select({ stage: studyCards.stage, n: sql<number>`count(*)::int`, suspended: sql<number>`(count(*) filter (where ${studyCards.suspended}))::int` })
-    .from(studyCards)
-    .where(and(eq(studyCards.userId, userId), eq(studyCards.subjectId, subject.id)))
-    .groupBy(studyCards.stage);
-  const counts = { NEW: 0, LEARNING: 0, WEEKLY: 0, MONTHLY: 0, QUARTERLY: 0, total: 0, suspended: 0 };
-  for (const r of stageRows) {
-    counts[r.stage] = r.n;
-    counts.total += r.n;
-    counts.suspended += r.suspended;
-  }
-
   return NextResponse.json({
     cards: page.map((r) => cardView(r.card)),
-    counts,
+    counts: await cardCounts(db, userId, subject.id),
     nextCursor: rows.length > limit ? encodeCursor(page[page.length - 1].ts, page[page.length - 1].card.id) : null,
   });
 });

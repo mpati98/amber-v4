@@ -80,3 +80,21 @@ export function decodeCursor(raw: string): { t: string; id: string } | null {
 
 /** Thoát ký tự đặc biệt của LIKE để tìm đúng chuỗi người dùng gõ. */
 export const likePattern = (q: string) => `%${q.replace(/[\\%_]/g, "\\$&")}%`;
+
+export type CardCounts = { NEW: number; LEARNING: number; WEEKLY: number; MONTHLY: number; QUARTERLY: number; total: number; suspended: number };
+
+/** Số thẻ của cả môn theo giai đoạn, kèm tổng và số thẻ tạm dừng. */
+export async function cardCounts(dbx: DbLike, userId: string, subjectId: string): Promise<CardCounts> {
+  const rows = await dbx
+    .select({ stage: studyCards.stage, n: sql<number>`count(*)::int`, suspended: sql<number>`(count(*) filter (where ${studyCards.suspended}))::int` })
+    .from(studyCards)
+    .where(and(eq(studyCards.userId, userId), eq(studyCards.subjectId, subjectId)))
+    .groupBy(studyCards.stage);
+  const counts: CardCounts = { NEW: 0, LEARNING: 0, WEEKLY: 0, MONTHLY: 0, QUARTERLY: 0, total: 0, suspended: 0 };
+  for (const r of rows) {
+    counts[r.stage] = r.n;
+    counts.total += r.n;
+    counts.suspended += r.suspended;
+  }
+  return counts;
+}

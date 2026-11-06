@@ -6,7 +6,8 @@ import { withAuth } from "@/lib/withAuth";
 import { courseViews } from "@/lib/study-courses";
 import { dayTotals } from "@/lib/study-days";
 import { buildOverview, weekBounds } from "@/lib/study-overview";
-import { vnToday } from "@/lib/vn-time";
+import { loadDays } from "@/lib/study-card-plan";
+import { nextReviewDay, vnToday } from "@/lib/vn-time";
 
 // Tổng quan Học tập: mục tiêu tuần + từng môn (hôm nay, phần kế tiếp, khóa đang học). Chỉ đọc.
 export const GET = withAuth(async (_req, userId) => {
@@ -40,15 +41,24 @@ export const GET = withAuth(async (_req, userId) => {
   const coursesBySubject = new Map<string, typeof views>();
   for (const v of views) coursesBySubject.set(v.subjectId, [...(coursesBySubject.get(v.subjectId) ?? []), v]);
 
-  return NextResponse.json(
-    buildOverview({
-      today,
-      subjects: subjects.map((s) => ({ id: s.id, name: s.name, dailyGoalMinutes: s.dailyGoalMinutes })),
-      totals,
-      todayLogCounts: new Map(todayCounts.map((r) => [r.subjectId, r.n])),
-      todayReasons: new Map(todayReasons.map((r) => [r.subjectId, { code: r.code, text: r.text }])),
-      coursesBySubject,
-    })
-  );
-});
+  const overview = buildOverview({
+    today,
+    subjects: subjects.map((s) => ({ id: s.id, name: s.name, dailyGoalMinutes: s.dailyGoalMinutes })),
+    totals,
+    todayLogCounts: new Map(todayCounts.map((r) => [r.subjectId, r.n])),
+    todayReasons: new Map(todayReasons.map((r) => [r.subjectId, { code: r.code, text: r.text }])),
+    coursesBySubject,
+  });
 
+  // Khối thẻ từ vựng: chỉ đọc, KHÔNG tạo kế hoạch — môn chưa mở hàng ôn hôm nay thì planned = finished = 0.
+  const days = await loadDays(db, userId, ids, today, new Date());
+  const subjectById = new Map(subjects.map((s) => [s.id, s]));
+  return NextResponse.json({
+    ...overview,
+    subjects: overview.subjects.map((o) => {
+      const s = subjectById.get(o.subjectId)!;
+      const { planned, finished } = days.get(s.id)!.summary.progress;
+      return { ...o, cards: { planned, finished, quota: s.cardDailyQuota, nextReviewDay: nextReviewDay(today, s.reviewWeekdays) } };
+    }),
+  });
+});
