@@ -1,7 +1,7 @@
 // Test đọc/kiểm tra mảng thẻ từ vựng — chạy: npm test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_CARDS_PER_IMPORT, parseCards, parseCardsText } from "./study-card-parse";
+import { MAX_CARDS_PER_IMPORT, parseCards, parseCardsText, validateCard } from "./study-card-parse";
 
 const ok = { phrase: "look forward to", meaning: "to be excited about a future event", example: "I look forward to the trip.", kind: "PHRASAL_VERB" };
 
@@ -80,4 +80,19 @@ test("parseCardsText: bỏ rào ```json", () => {
 test("note: chuỗi rỗng thành null, sai kiểu là lỗi", () => {
   assert.equal(parseCards([{ ...ok, note: "  " }]).cards[0].note, null);
   assert.deepEqual(parseCards([{ ...ok, note: 5 }]).errors, [{ index: 0, field: "note", reason: "invalid" }]);
+});
+
+test("validateCard: một thẻ hợp lệ được chuẩn hoá, thẻ lỗi trả mọi lỗi theo trường", () => {
+  const good = validateCard({ ...ok, phrase: " Look  Forward To ", topics: [" Travel "] });
+  assert.ok(good.ok);
+  if (good.ok) assert.deepEqual([good.card.phraseKey, good.card.topics], ["look forward to", ["travel"]]);
+  const bad = validateCard({ phrase: "hello", kind: "X" });
+  assert.ok(!bad.ok);
+  if (!bad.ok) assert.deepEqual(bad.errors.map((e) => e.field), ["phrase", "meaning", "example", "kind"]);
+  assert.deepEqual(validateCard(null), { ok: false, errors: [{ field: null, reason: "not_object" }] });
+});
+
+test("parseCards: mỗi thẻ hợp lệ mang index gốc trong đầu vào", () => {
+  const r = parseCards([{ ...ok, kind: "X" }, ok, { ...ok, phrase: "break the ice" }]);
+  assert.deepEqual(r.cards.map((c) => c.index), [1, 2]);
 });

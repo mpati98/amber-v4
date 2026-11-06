@@ -94,3 +94,50 @@ export const patchLogSchema = z.object({
   note: z.string().trim().max(2000).nullable().optional(),
   stopForToday: stopForTodaySchema.optional(),
 });
+
+// ----- Thẻ từ vựng (study_cards) -----
+// Ngữ nghĩa từng trường (độ dài, kind, topics...) do validateCard ở study-card-parse kiểm tra; zod chỉ lo hình dạng.
+
+export const CARD_STAGES = ["NEW", "LEARNING", "WEEKLY", "MONTHLY", "QUARTERLY"] as const;
+export const MAX_CARD_IMPORT = 100;
+
+export const createCardSchema = z.object({
+  subjectId: z.string(),
+  logId: z.string().optional(),
+  phrase: z.string(),
+  meaning: z.string(),
+  example: z.string(),
+  note: z.string().nullable().optional(),
+  kind: z.string(),
+  topics: z.array(z.string()).optional(),
+});
+
+export const patchCardSchema = z
+  .object({
+    phrase: z.string(),
+    meaning: z.string(),
+    example: z.string(),
+    note: z.string().nullable(),
+    kind: z.string(),
+    topics: z.array(z.string()),
+    suspended: z.boolean(),
+  })
+  .partial();
+
+export const listCardsQuerySchema = z.object({
+  subjectId: z.string(),
+  stage: z.enum(CARD_STAGES).optional(),
+  kind: z.string().optional(),
+  topic: z.string().optional(),
+  q: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  cursor: z.string().max(200).optional(),
+});
+
+export const parseCardsSchema = z.object({ subjectId: z.string(), text: z.string().max(500_000) });
+
+export const importCardsSchema = z.object({
+  subjectId: z.string(),
+  logId: z.string().optional(),
+  cards: z.array(z.unknown()).min(1).max(MAX_CARD_IMPORT),
+});
