@@ -19,6 +19,14 @@ export const exerciseMeasure = pgEnum("exercise_measure", ["REPS", "SETS_REPS", 
 // Học tập (Trà Đình): trạng thái khóa học và lý do chưa đủ mục tiêu trong ngày.
 export const studyCourseStatus = pgEnum("study_course_status", ["WISHLIST", "QUEUED", "ACTIVE", "DONE"]);
 export const studyReasonCode = pgEnum("study_reason_code", ["BUSY", "TIRED", "AWAY", "OTHER"]);
+// Loại buổi học: LESSON = học bài (khóa/phần), CARD_REVIEW = phút ôn thẻ từ vựng (không khóa, không phần).
+export const studyLogActivity = pgEnum("study_log_activity", ["LESSON", "CARD_REVIEW"]);
+
+// Thẻ từ vựng (Trà Đình): giai đoạn ôn, mức đánh giá, loại thẻ, nguồn thẻ trong kế hoạch ngày.
+export const studyCardStage = pgEnum("study_card_stage", ["NEW", "LEARNING", "WEEKLY", "MONTHLY", "QUARTERLY"]);
+export const studyCardRating = pgEnum("study_card_rating", ["NOT_YET", "REVIEW_AGAIN", "REMEMBERED"]);
+export const studyCardKind = pgEnum("study_card_kind", ["PHRASAL_VERB", "COLLOCATION", "IDIOM", "PATTERN", "EXPRESSION"]);
+export const studyCardBucket = pgEnum("study_card_bucket", ["DUE", "NEW", "HARD", "RANDOM"]);
 
 // ============================================================
 // Bảng (định nghĩa hết trước — mọi relations() dồn xuống cuối file
@@ -332,10 +340,12 @@ export const studySubjects = pgTable(
     dailyGoalMinutes: integer("daily_goal_minutes"), // null = không đặt mục tiêu
     videoMinutesPerDay: integer("video_minutes_per_day").notNull().default(40),
     reviewWeekdays: integer("review_weekdays").array().notNull().default([7]),
+    cardDailyQuota: integer("card_daily_quota").notNull().default(20), // số thẻ khác nhau tối đa mỗi ngày
     position: integer("position").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    check("study_subjects_card_daily_quota_check", sql`${table.cardDailyQuota} between 1 and 20`),
     check("study_subjects_daily_goal_minutes_check", sql`${table.dailyGoalMinutes} between 1 and 1440`),
     check("study_subjects_video_minutes_per_day_check", sql`${table.videoMinutesPerDay} between 1 and 1440`),
   ]
@@ -397,6 +407,7 @@ export const studyLogs = pgTable(
     logDate: date("log_date").notNull(),
     minutes: integer("minutes").notNull(),
     note: text("note"),
+    activity: studyLogActivity("activity").notNull().default("LESSON"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -437,6 +448,81 @@ export const studyDayReasons = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [uniqueIndex("study_day_reasons_subject_id_reason_date_key").on(table.subjectId, table.reasonDate)]
+);
+
+// Thẻ từ vựng: một cụm từ + nghĩa tiếng Anh + câu ví dụ. phrase_key = cụm đã chuẩn hoá (chống trùng trong môn).
+// due_at null khi stage = NEW. Xoá buổi học nguồn thì giữ thẻ (source_log_id → null).
+export const studyCards = pgTable(
+  "study_cards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subjectId: uuid("subject_id")
+      .notNull()
+      .references(() => studySubjects.id, { onDelete: "cascade" }),
+    sourceLogId: uuid("source_log_id").references(() => studyLogs.id, { onDelete: "set null" }),
+    phrase: varchar("phrase", { length: 255 }).notNull(),
+    phraseKey: varchar("phrase_key", { length: 255 }).notNull(),
+    meaning: text("meaning").notNull(),
+    example: text("example").notNull(),
+    note: text("note"),
+    kind: studyCardKind("kind").notNull(),
+    topics: text("topics").array().notNull().default([]),
+    stage: studyCardStage("stage").notNull().default("NEW"),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    reviewCount: integer("review_count").notNull().default(0),
+    notYetCount: integer("not_yet_count").notNull().default(0),
+    lastReviewedAt: timestamp("last_reviewed_at", { withTimezone: true }),
+    suspended: boolean("suspended").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("study_cards_subject_id_phrase_key_key").on(table.subjectId, table.phraseKey),
+    index("study_cards_user_id_due_at_idx").on(table.userId, table.dueAt),
+  ]
+);
+
+// Mọi lượt đánh giá thẻ (kể cả ôn thêm) — nguồn cho thống kê nhóm khó.
+export const studyCardReviews = pgTable(
+  "study_card_reviews",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    cardId: uuid("card_id")
+      .notNull()
+      .references(() => studyCards.id, { onDelete: "cascade" }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }).notNull().defaultNow(),
+    rating: studyCardRating("rating").notNull(),
+    bucket: studyCardBucket("bucket").notNull(),
+    stageBefore: studyCardStage("stage_before").notNull(),
+    stageAfter: studyCardStage("stage_after").notNull(),
+    dueAfter: timestamp("due_after", { withTimezone: true }),
+  },
+  (table) => [index("study_card_reviews_card_id_reviewed_at_idx").on(table.cardId, table.reviewedAt)]
+);
+
+// Kế hoạch thẻ của một ngày (plan_date theo giờ VN), tạo một lần khi mở hàng đợi lần đầu trong ngày.
+export const studyCardDayPlanItems = pgTable(
+  "study_card_day_plan_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subjectId: uuid("subject_id")
+      .notNull()
+      .references(() => studySubjects.id, { onDelete: "cascade" }),
+    planDate: date("plan_date").notNull(),
+    cardId: uuid("card_id")
+      .notNull()
+      .references(() => studyCards.id, { onDelete: "cascade" }),
+    bucket: studyCardBucket("bucket").notNull(),
+  },
+  (table) => [uniqueIndex("study_card_day_plan_items_subject_id_plan_date_card_id_key").on(table.subjectId, table.planDate, table.cardId)]
 );
 
 // ===== Kiều Lâu — trung tâm thông báo + tin tức =====
@@ -850,6 +936,25 @@ export const studyLogSectionsRelations = relations(studyLogSections, ({ one }) =
 export const studyDayReasonsRelations = relations(studyDayReasons, ({ one }) => ({
   user: one(users, { fields: [studyDayReasons.userId], references: [users.id] }),
   subject: one(studySubjects, { fields: [studyDayReasons.subjectId], references: [studySubjects.id] }),
+}));
+
+export const studyCardsRelations = relations(studyCards, ({ one, many }) => ({
+  user: one(users, { fields: [studyCards.userId], references: [users.id] }),
+  subject: one(studySubjects, { fields: [studyCards.subjectId], references: [studySubjects.id] }),
+  sourceLog: one(studyLogs, { fields: [studyCards.sourceLogId], references: [studyLogs.id] }),
+  reviews: many(studyCardReviews),
+  planItems: many(studyCardDayPlanItems),
+}));
+
+export const studyCardReviewsRelations = relations(studyCardReviews, ({ one }) => ({
+  user: one(users, { fields: [studyCardReviews.userId], references: [users.id] }),
+  card: one(studyCards, { fields: [studyCardReviews.cardId], references: [studyCards.id] }),
+}));
+
+export const studyCardDayPlanItemsRelations = relations(studyCardDayPlanItems, ({ one }) => ({
+  user: one(users, { fields: [studyCardDayPlanItems.userId], references: [users.id] }),
+  subject: one(studySubjects, { fields: [studyCardDayPlanItems.subjectId], references: [studySubjects.id] }),
+  card: one(studyCards, { fields: [studyCardDayPlanItems.cardId], references: [studyCards.id] }),
 }));
 
 export const routinesRelations = relations(routines, ({ one }) => ({

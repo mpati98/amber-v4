@@ -49,6 +49,9 @@ export default defineConfig({
     "study_logs",
     "study_log_sections",
     "study_day_reasons",
+    "study_cards",
+    "study_card_reviews",
+    "study_card_day_plan_items",
     "music_tracks",
   ],
 });
