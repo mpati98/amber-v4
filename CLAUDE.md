@@ -58,7 +58,7 @@ Vercel nên dùng host `-pooler` của main.
 
 ```
 src/
-  app/api/**/route.ts   69 route handler (không có page/layout nào — build vẫn chạy)
+  app/api/**/route.ts   96 route handler (06/11/2026; không có page/layout nào — build vẫn chạy)
   db/index.ts           postgres.js + drizzle, { max: 5, prepare: false, idle_timeout: 20 }
   db/schema.ts          toàn bộ schema Drizzle (1 file)
   lib/                  helper dùng chung (xem dưới)
@@ -109,7 +109,7 @@ vercel.json             { "regions": ["sin1"] } — gần Neon Singapore
 | Tàng Kinh Các | `/api/tang-kinh-cac` | sách, tài liệu, highlight, mục tiêu đọc, upload Blob private (đọc lại qua `/blob/[...path]`) |
 | Nhạc | `/api/music` | track MP3 riêng theo user, client upload Blob qua token giới hạn |
 | Kiều Lâu | `/api/kieu-lau` | cảnh báo tính lúc gọi (không lưu DB), nhật ký `activity_logs`, RSS |
-| Trà Đình | `/api/tra-dinh` | luyện tiếng Anh với AI: chat, ghi âm→chữ, đọc thành tiếng, bài test đầu vào, điểm 6 kỹ năng |
+| Trà Đình | `/api/tra-dinh` | luyện tiếng Anh với AI: chat, ghi âm→chữ, đọc thành tiếng, bài test đầu vào, điểm 6 kỹ năng. Học tập: `/api/tra-dinh/hoc-tap` (môn, khóa, buổi học, tổng quan, lịch, thống kê) và **kho thẻ từ vựng** `/api/tra-dinh/hoc-tap/cards` (mục riêng bên dưới) |
 | Hồ sơ | `/api/user` | đổi tên, đổi mật khẩu |
 | Public | `/api/public/*` | contact form (không auth) |
 
@@ -187,18 +187,26 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
 
 - **Backend** deploy bằng `git push origin main` (project Vercel `amber-v4` nối GitHub `mpati98/amber-v4`, nhánh `main`;
   alias `api.duangmai.io.vn`). Build ~40 giây. Deploy backend TRƯỚC, Flutter sau.
-- **Đang chạy** (22/10/2026): `dpl_HPsMYszoLZbXzyKTv2pqiGx9v9L8`, build từ commit `e957c71` (Next 16.3.8, Trà Đình học tập, route
-  brain-logs). **Mốc rollback** (bản trước đó, commit `c7254e9`): `dpl_6XqURxEW2ak4NZxG1WUizMz8oxMM`; trước nữa `dpl_FyeZ2MAr67PuXrisVbLitU3DBa4M`
-  (`6228a47`). Commit docs sau đó sẽ có deployment riêng (không đổi code). Rollback: `vercel rollback <id>` hoặc promote từ dashboard; DB không tự lùi —
-  migration chỉ thêm cột/bảng nên bản cũ vẫn chạy được trên schema mới (đã kiểm: brain đẩy log thành công lên bản cũ + schema mới).
+- **Đang chạy** (06/11/2026): `dpl_8iQN7PQ4QVvsvwzinxXeyCfThF3R`, build từ commit `1942261` (commit docs cuối của đợt kho thẻ; code kho thẻ là 7 commit
+  `184ffcf`…`cd390ce` trước đó). **Mốc rollback** (bản trước đó, nhạc 24/10): `dpl_ALbgRnUGVcT1YAqT4M7YC8FEVYxE` (`965f324`); trước nữa
+  `dpl_5pfMRSrbGyDx6oHUgMuffd2mQ31t` (`7aeee22`). Rollback: `vercel rollback <id>` (khôi phục lại: `vercel promote <id>`) hoặc promote từ dashboard. DB không tự lùi —
+  migration chỉ thêm cột/bảng (có DEFAULT) nên bản cũ chạy được trên schema mới; đã kiểm với 0009 (brain đẩy log thành công lên bản cũ + schema mới),
+  với 0011 mới là suy luận, chưa thử trên production. Chưa kiểm: gói Vercel có cho rollback xa hơn "bản production ngay trước" hay không.
+  Máy này không có `.vercel/project.json` của backend: tra deployment hiện tại bằng `vercel api /v9/projects/amber-v4` (`targets.production`), log bằng
+  `vercel logs -p amber-v4 -d <id> --since 1h --json`.
 - **Migration production đã áp**: 0006 (`agent_logs`) và 0007 (buổi tập) ngày 13/10/2026; 0008 (`tra_dinh_hoc_tap`: 6 bảng `study_*` + cột
   `routines.study_subject_id`) và 0009 (`agent_logs.route` + `cloud_model`, index, CHECK) ngày 22/10/2026 — `drizzle.__drizzle_migrations` = 10/10.
   Lần 22/10 áp trực tiếp, KHÔNG có nhánh sao lưu/diễn tập (người dùng chọn dựa vào point-in-time restore của Neon, cả hai migration chỉ thêm);
   so trước/sau: số dòng của 31 bảng cũ và số dư 2 ví không đổi, 6 bảng mới rỗng. Nhánh sao lưu cũ: `backup-truoc-workout-20261013`.
 - **Music migration production 0010** (`0010_wealthy_fat_cobra`, bảng `music_tracks`) đã áp ngày 24/10/2026 sau khi xác nhận đủ 10 migration trước đó.
   `drizzle.__drizzle_migrations` = 11/11; 37 bảng cũ giữ nguyên số dòng, số dư 2 ví không đổi; `music_tracks` mới rỗng. Nhánh backup Neon đã được người dùng xác nhận trước migrate: `backup-truoc-music-20261024`.
+- **Migration production 0011** (`0011_noisy_jazinda`: kho thẻ từ vựng) áp ngày **06/11/2026 lúc 16:12 UTC** (mốc khôi phục theo thời điểm: `16:12:11 UTC`).
+  `drizzle.__drizzle_migrations` = 12/12; 3 bảng mới (`study_cards`, `study_card_reviews`, `study_card_day_plan_items`) rỗng, 5 enum mới, cột `study_logs.activity`
+  (mặc định `LESSON`) và `study_subjects.card_daily_quota` (mặc định 20, CHECK 1–20); 38 bảng cũ giữ nguyên số dòng (đã so với file đếm dòng trước migrate),
+  `study_logs` 0 dòng, `study_subjects` 1 dòng quota 20. **KHÔNG có nhánh sao lưu** (người dùng chọn dựa vào point-in-time restore của Neon), nên luôn ghi mốc UTC ngay trước migrate.
+  Deploy: backend `dpl_8iQN7PQ4QVvsvwzinxXeyCfThF3R` Ready lúc 16:14:48 UTC; smoke test 401 / CORS / `/api/health` đều đúng; log runtime không có lỗi.
 - **Quy trình migrate production đã chạy tốt** — làm lại đúng thế này:
-  1. Sao lưu: tạo nhánh Neon từ production (console; máy này không có `neonctl`).
+  1. Sao lưu: tạo nhánh Neon từ production (console; máy này không có `neonctl`). Nếu người dùng bỏ bước này (06/11/2026) thì dựa vào point-in-time restore và ghi mốc UTC (có giây) ngay trước lệnh migrate.
   2. Thử trước trên nhánh tách từ production (`test-migrate-*`): ghi số dòng + số dư ví + số migration đã áp
      (`select count(*) from drizzle.__drizzle_migrations`; nó cho biết migration nào còn treo — lần này 6 đã áp, nghĩa là
      0006 cũng chưa áp). Bảng còn rỗng thì chèn vài dòng tạm cho đúng bảng sẽ bị đổi (backfill) rồi mới migrate, xong xoá.
@@ -210,7 +218,7 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
      kết nối chỉ-đọc. Chạy cả `db:migrate` cho MỌI migration còn treo, không chỉ cái mình vừa viết.
   4. Push → chờ deployment Ready → xác nhận commit + alias (`vercel api /v13/deployments/<id>`) → smoke test không ghi:
      GET không token trả 401 (không 404/500), `/api/health` 200, preflight OPTIONS từ `https://amber.duangmai.io.vn` được phép.
-- **Phát hành Nhạc (24/10/2026)**: migration 0010 đã lên production; backend code chưa push/deploy. Stream route khai báo Node.js runtime và
+- **Phát hành Nhạc (24/10/2026)**: migration 0010 và backend code đã lên production (`965f324`). Stream route khai báo Node.js runtime và
   `maxDuration = 300` cho Vercel Hobby (plan đã được người dùng xác nhận). Hobby dừng function sau tối đa 300 giây; nếu một response stream
   liên tục lâu hơn, nó sẽ bị cắt. Cần kiểm thử trên iPhone với MP3 dài và xử lý giới hạn này trước khi coi phát liên tục >5 phút là bảo đảm.
 - **Máy này không có thông tin đăng nhập GitHub**: người dùng tự `git push`, đừng cố push hay cấu hình credential.
@@ -223,6 +231,7 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
   trọng số / giữ "điểm buổi gần nhất". Đừng tự sửa logic chấm điểm.
 - Gỡ hẳn NextAuth (cookie) hay giữ; `SKILL_LABEL` trong `lib/skills.ts` không còn ai dùng.
 - Rate limit đăng nhập; upload > 4,5 MB cần client upload thẳng lên Blob.
+- Kho thẻ: các giới hạn đã biết nằm ở cuối mục "Kho thẻ từ vựng" (thứ tự thẻ trong kế hoạch, nhãn nguồn buổi học, trạng thái "môn chưa có thẻ").
 - `prompt-amber-v4-migration.md` là tài liệu lịch sử của đợt chuyển v3 → v4 —
   không sửa nội dung. `README.md` vẫn là mẫu create-next-app.
 
@@ -260,3 +269,104 @@ Bảng `agent_logs` (migration 0006; `route` và `cloud_model` từ migration 00
 Export trả thêm `route`, `cloudModel`, `trainingTarget` (ưu tiên `correctedOutput`, ngược lại `parsedOutput`), `eligible` và `eligibleReason`. `eligible=true|false|all` mặc định `all`. Eligibility có một hàm nguồn duy nhất dùng chung với `/stats`; mã reason hiện có là `corrected`, `user_rated`, `confirmed` (commit `074fae7`). Không chuyển lại điều kiện eligibility vào exporter phía brain. `npm run test:brain-logs` kiểm tra API trên DEV, tự từ chối nếu DB production.
 
 `scripts/seed-brain-logs.ts` thêm 303 dòng giả vào DEV (commit `d25435f`), chạy `npx tsx scripts/seed-brain-logs.ts`; `--clean` chỉ xoá các dòng có marker seed. Không dùng dữ liệu seed để huấn luyện. Nợ: lint còn khoảng 71 lỗi `no-explicit-any` ở script e2e; Flutter chưa có contract test cho PATCH `correctedOutput` và lọc `route`.
+
+## Kho thẻ từ vựng của Trà Đình (`/api/tra-dinh/hoc-tap/cards`)
+
+Thiết kế đầy đủ và lịch sử các bước: `docs/tra-dinh-the-tu-vung-ke-hoach.md`. Lên production 06/11/2026 (migration 0011 lúc 16:12 UTC, xem "Triển khai production").
+Mọi route dùng `withAuth`, zod, JSON trần, và **mọi truy vấn lọc theo `user_id`**; thẻ / buổi học của user khác trả 404 (`card_not_found`, `subject_not_found`, `log_not_found`).
+
+### Schema (migration `0011_noisy_jazinda`)
+
+- `study_cards`: `subject_id` (cascade), `source_log_id` (→ `study_logs`, `set null`), `phrase` (≤ 255), `phrase_key` (cụm đã chuẩn hoá: cắt, chữ thường, gộp khoảng trắng), `meaning`, `example`, `note`,
+  `kind`, `topics text[]` (≤ 3), `stage`, `due_at` (null khi NEW), `review_count`, `not_yet_count`, `last_reviewed_at`, `suspended`. Unique `(subject_id, phrase_key)`, index `(user_id, due_at)`.
+- `study_card_reviews`: mọi lượt đánh giá (`rating`, `bucket`, `stage_before`, `stage_after`, `due_after`), index `(card_id, reviewed_at)`; cascade theo thẻ.
+- `study_card_day_plan_items`: kế hoạch thẻ của một ngày `(subject_id, plan_date, card_id)` unique + `bucket`. **Không có cột thứ tự.**
+- Cột mới: `study_subjects.card_daily_quota` (int, mặc định 20, CHECK 1–20) và `study_logs.activity` (enum `study_log_activity`: `LESSON` mặc định | `CARD_REVIEW`).
+- Enum mới: `study_card_stage` (NEW, LEARNING, WEEKLY, MONTHLY, QUARTERLY), `study_card_rating` (NOT_YET, REVIEW_AGAIN, REMEMBERED), `study_card_kind`
+  (PHRASAL_VERB, COLLOCATION, IDIOM, PATTERN, EXPRESSION), `study_card_bucket` (DUE, NEW, HARD, RANDOM), `study_log_activity`. Thêm giá trị mới = migration mới.
+- Cả ba bảng mới nằm trong `tablesFilter` của `drizzle.config.ts`.
+
+### Route
+
+| Route | Ghi chú |
+|---|---|
+| `GET /cards?subjectId=&stage=&kind=&topic=&q=&limit=&cursor=` | `limit` mặc định 50, tối đa 200; con trỏ theo `(created_at desc, id)` — `created_at` giữ dạng văn bản có micro giây (đi qua `Date` của JS sẽ cắt còn mili giây và làm sót thẻ); `q` khớp cụm hoặc nghĩa, không phân biệt hoa thường; trả `{cards, counts, nextCursor}`, `counts` (theo giai đoạn + `total` + `suspended`) của cả môn, bỏ qua mọi bộ lọc |
+| `POST /cards` (201), `GET/PATCH/DELETE /cards/[id]` | PATCH chỉ nhận `phrase, meaning, example, note, kind, topics, suspended` (khoá lạ bị bỏ qua; không đổi được môn, giai đoạn, hạn, số đếm); validate thẻ sau khi gộp; 409 `duplicate_phrase`; DELETE `{ok:true}` xoá theo lượt ôn và mục kế hoạch (cascade) |
+| `POST /cards/parse {subjectId, text}` | Xem trước, không lưu: `{cards, errors, duplicates, existing}`; `cards` = thẻ SẼ được tạo (đã bỏ lặp trong đầu vào và thẻ đã có); mỗi mục có `index` (từ 0) |
+| `POST /cards/import {subjectId, logId?, cards[]}` (201) | Tối đa 100; có thẻ lỗi → 400 `invalid_cards` kèm `errors`, không lưu gì; bỏ qua (không lỗi) thẻ lặp / đã có; `ON CONFLICT DO NOTHING` trên `(subject_id, phrase_key)` nên nhập song song không tạo trùng; `created_at` tăng dần theo thứ tự nhập; một `logActivity` (`study_card.imported`) mỗi lần; trả `{created, skipped}` |
+| `GET /cards/queue?subjectId=` | Tạo kế hoạch hôm nay lần đầu trong ngày (và bù thêm nếu còn chỗ), khoá dòng môn `FOR NO KEY UPDATE`; trả `{date, quota, cards, progress, counts, soonestDueAt}`; mỗi thẻ có `bucket` và `next` (kết quả `{stage, dueAt}` của từng mức đánh giá) |
+| `POST /cards/[id]/review {rating}` (201) | Khoá dòng thẻ `FOR UPDATE` nên bấm đúp / song song chỉ áp dụng một lần; trả `{card, progress, soonestDueAt}`; 409 theo thứ tự kiểm tra: `card_suspended`, `not_in_today_plan`, `already_finished_today`, `not_due_yet` |
+| `GET /cards/insights?subjectId=&days=` | `days` ∈ 7, 30 (mặc định), 90, khác → 400 `invalid_days`; trả `{days, minCards: 10, totals, byKind, byTopic, byLesson, hardestCards}` |
+| `GET /cards/topics?subjectId=` | `{topics: [{topic, cards}]}`, nhiều thẻ trước rồi theo chữ cái; đếm cả thẻ tạm dừng |
+| `GET /overview` | mỗi môn thêm khối `cards: {planned, finished, quota, nextReviewDay}` — **chỉ đọc, không tạo kế hoạch** (môn chưa mở hàng ôn: `planned = finished = 0`) |
+
+`GET /api/tra-dinh/hoc-tap/overview`, `/logs`, `/stats`, `/schedule` giữ nguyên dạng cũ, chỉ thêm trường (app Flutter cũ không gửi `activity` vẫn chạy).
+
+### Buổi ôn thẻ (`study_logs.activity = CARD_REVIEW`)
+
+- `POST /logs` nhận `activity` (thiếu = `LESSON`). CARD_REVIEW: chỉ `subjectId`, `minutes` (1–1440), `note`; gửi `courseId` hoặc `sections` → 400 `card_review_no_course` / `card_review_no_sections`.
+  Nhiều buổi mỗi ngày được; chỉ tạo / sửa / xoá cho hôm nay như buổi học bài.
+- `PATCH /logs/[id]` của buổi CARD_REVIEW chỉ đổi `minutes` và `note`; gửi `activity` khác → 400 `activity_locked`.
+- Mọi response log (`GET /logs`, `log` của POST/PATCH, `logs` của lịch) có thêm `activity`. `logActivity` ghi "Ôn thẻ N phút: <môn>".
+
+### Hàm thuần trong `src/lib` (có unit test, không cần DB; `npm test` = 259 test)
+
+| File | Làm gì |
+|---|---|
+| `study-card-key.ts` | `phraseKey` |
+| `study-card-parse.ts` | `validateCard` (một thẻ), `parseCards`, `parseCardsText` (nhận cả khối ```json); cụm phải ≥ 2 từ, `kind` đúng một trong 5 giá trị, ≤ 3 chủ đề chữ thường, tối đa 100 thẻ |
+| `study-card-schedule.ts` | `scheduleCard`, `nextFor` |
+| `study-card-queue.ts` | `buildDayPlan`, `splitSlots` |
+| `study-card-day.ts` | `classifyCard`, `summarizeDay`, `isExtraReview`, `comparePlanCards`, `dayBounds` |
+| `study-card-insights.ts` | `buildInsights`, `lessonLabel`, `periodStart`, `countTopics` |
+| `vn-time.ts` (phần thêm) | `vnDayStart`, `monthBoundsOfIso`, `quarterBoundsOfIso`, `vnQuarterBounds`, `firstReviewDayOf`, `nextReviewDay`, `DEFAULT_REVIEW_WEEKDAYS` (chỉ thêm, không đổi hàm cũ) |
+
+Phần dùng DB (không thuần): `study-card-plan.ts` (`ensureDayPlan`, `loadDays`, `queueCard`) và `study-cards.ts` (view, đếm, con trỏ).
+
+### Luật nghiệp vụ
+
+- **Ba mức đánh giá, chuỗi giai đoạn** (mọi ngày theo giờ VN, lịch dương; "ngày ôn" = `study_subjects.review_weekdays`, mặc định Chủ nhật; hạn đặt ở 00:00 VN của ngày đó):
+  `NOT_YET` → LEARNING, hạn sau 5 phút · `REVIEW_AGAIN` → LEARNING, hạn 00:00 ngày mai · `REMEMBERED`: NEW/LEARNING → WEEKLY (ngày ôn kế tiếp sau hôm nay),
+  WEEKLY → MONTHLY (ngày ôn đầu tiên của THÁNG dương lịch kế tiếp), MONTHLY/QUARTERLY → QUARTERLY (ngày ôn đầu tiên của QUÝ dương lịch kế tiếp).
+- **Kế hoạch ngày tối đa 20 thẻ** (`card_daily_quota` ≤ 20), tạo một lần khi mở hàng ôn lần đầu trong ngày, lưu ở `study_card_day_plan_items`, bù thêm khi còn chỗ (không bao giờ bỏ mục đã có):
+  1. **DUE** trước: thẻ không NEW, không tạm dừng, `due_at` đến hết hôm nay (VN), quá hạn lâu nhất trước, tối đa quota; dư thì dồn sang ngày sau.
+  2. Chỗ còn lại R chia **70/20/10**: khó = làm tròn R/5, ngẫu nhiên = làm tròn R/10, mới = phần còn lại.
+  3. NEW theo thứ tự tạo; HARD = không NEW, chưa đến hạn, ≥ 2 lượt NOT_YET trong 30 ngày, xếp theo tỷ lệ NOT_YET giảm dần rồi thẻ ôn lâu nhất; RANDOM = phần còn lại, xáo có hạt giống `subjectId:ngày`.
+  4. Thiếu nhóm nào thì bù theo thứ tự NEW → HARD → RANDOM; vẫn thiếu thì để trống, không ép đủ 20. Chỉ ôn được thẻ nằm trong kế hoạch hôm nay.
+- **Trạng thái thẻ trong ngày**: PENDING (hôm nay chưa ôn) · FINISHED (lượt cuối hôm nay không phải NOT_YET, hoặc là NOT_YET nhưng hạn quay lại rơi sang ngày khác) · RETURNING (lượt cuối là NOT_YET, hạn còn trong
+  hôm nay: hiện lại khi `due_at ≤ now`, còn đợi thì tính vào `soonestDueAt`). Thẻ tạm dừng không tính vào `planned` / `finished` / hàng ôn.
+- **Ôn thêm** (`isExtra`): chỉ khi thẻ thuộc nhóm HARD hoặc RANDOM **và đây là lượt ôn đầu tiên trong ngày** thì `REMEMBERED` GIỮ NGUYÊN giai đoạn và hạn. NOT_YET / REVIEW_AGAIN vẫn áp dụng như thường; lượt sau NOT_YET trong cùng
+  ngày là lượt thường. Server tính sẵn điều này trong `next` (đã kiểm trên dữ liệu thật: thẻ HARD/RANDOM có `next.REMEMBERED` trùng giai đoạn và hạn hiện tại).
+- **Nhóm khó là tích luỹ**: một thẻ "từng Chưa nhớ" khi `not_yet_count ≥ 1` (đếm suốt đời thẻ, kể cả sau này Đã nhớ). Nhóm (theo loại, chủ đề, buổi học nguồn) chỉ hiện khi có **≥ 10 thẻ từng Chưa nhớ** (`minCards`); xếp theo tỷ lệ
+  rồi số thẻ. Thẻ hay quên: `not_yet_count ≥ 3`, nhiều nhất trước, tối đa 10. Chỉ `totals` (`reviews`, `notYetRate`, `promotedToWeekly`) tính trong kỳ `days` (ngày VN, tính cả hôm nay); thẻ có nhiều chủ đề tính ở mỗi chủ đề.
+  Nhãn buổi học "dd/MM · tên khóa" (buổi không khóa "Ôn tập", buổi ôn thẻ "Ôn thẻ"); thẻ không có buổi nguồn không tạo nhóm buổi học.
+
+### Chỗ đọc `study_logs` xử lý CARD_REVIEW
+
+- **Tính cả phút CARD_REVIEW** (không cần code riêng): `dayTotals` (tổng ngày, tuần, mục tiêu, lý do thiếu), `pendingReasonDates`, chuỗi ngày routine STUDY, `goal_met`, `today.logCount` của overview.
+- **Chỉ tính buổi LESSON**: `forecastSubject` (`hasLessonToday` trong `study-forecast.ts`: có buổi hôm nay mới đẩy lịch dự báo sang ngày mai) và nhánh "hôm nay" của `buildSchedule`
+  (bỏ kế hoạch học bài chỉ khi có buổi LESSON). Hai chỗ này phải đi cùng nhau.
+- **Thống kê `byCourse`**: buổi CARD_REVIEW thành mục riêng `title = "Ôn thẻ"` (`CARD_REVIEW_COURSE_TITLE`). Mục này và mục "Ôn tập" đều có `courseId: null` → **client không được dùng `courseId` làm khoá duy nhất**
+  (màn Thống kê Flutter cũ dùng nó làm khoá widget và sẽ ném "Duplicate keys found" khi gặp hai mục này; đã sửa bằng `statsCourseKeys`).
+- `logViews`, lịch và `recentLogs` của khóa chịu được buổi không khóa; `recentLogs` lọc theo khóa nên không bao giờ có buổi ôn thẻ.
+
+### Kiểm thử e2e (Neon DEV, cần `npm run dev` ở :3000; từ chối chạy nếu `DATABASE_URL` trùng host production; tự tạo user tạm và xoá ở `finally`)
+
+```bash
+npm test                                       # 259 unit test, không cần DB
+npx tsx scripts/study-cards-e2e.ts             # CRUD, parse, import (kể cả nhập song song), lọc, phân trang, phân quyền
+npx tsx scripts/study-cards-queue-e2e.ts       # kế hoạch ngày, review, mọi mã 409, ôn song song, khối cards của overview
+npx tsx scripts/study-cards-insights-e2e.ts    # nhóm khó, ngưỡng 10, kỳ 7/30/90, topics (gài thẻ + lượt ôn thẳng vào DB)
+npx tsx scripts/study-logs-e2e.ts              # buổi học + CARD_REVIEW + routine STUDY (chuỗi ngày, lý do)
+npx tsx scripts/study-overview-e2e.ts          # tổng quan, lịch, thống kê
+```
+
+`study-cards-queue-e2e` tự bỏ qua nếu còn < 10 phút tới nửa đêm giờ VN (NOT_YET cần hạn quay lại trong ngày). Trước khi push: `npx tsc --noEmit`, `npm test`, `npm run build`.
+
+### Giới hạn đã biết (chưa làm)
+
+- **Kế hoạch ngày không lưu thứ tự thẻ** (bảng không có cột vị trí). Hàng ôn dùng thứ tự suy ra: DUE → NEW → HARD → RANDOM; DUE theo `due_at`, các nhóm còn lại theo ngày tạo rồi id — không còn là thứ tự xáo của
+  RANDOM hay thứ tự tỷ lệ của HARD lúc tạo. Muốn đúng thứ tự gốc cần cột `position` (migration mới).
+- **Mặt sau thẻ ôn không có nhãn nguồn buổi học**: `GET /cards/queue` chỉ trả `sourceLogId`, chưa trả nhãn "dd/MM · khóa".
+- **Insights không có trạng thái "môn chưa có thẻ nào"**: phản hồi không nói số thẻ của môn, nên môn trống và môn chưa đủ ngưỡng giống nhau (mảng rỗng).
+- Thẻ và lượt ôn chưa đẩy vào `agent_logs`; chưa có liên kết giữa các thẻ, đo thời gian trả lời, nhắc ôn qua Kiều Lâu.
