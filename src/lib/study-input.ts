@@ -79,13 +79,15 @@ export const logSectionInputSchema = z.object({
   markDone: z.boolean().optional(),
 });
 
-// LESSON = học bài (mặc định, app cũ không gửi trường này); CARD_REVIEW = phút ôn thẻ từ vựng.
-export const studyLogActivitySchema = z.enum(["LESSON", "CARD_REVIEW"]);
+// LESSON = học bài (mặc định, app cũ không gửi trường này); CARD_REVIEW = phút ôn thẻ từ vựng; PRACTICE = phút luyện chat AI.
+export const studyLogActivitySchema = z.enum(["LESSON", "CARD_REVIEW", "PRACTICE"]);
 
 export const createLogSchema = z.object({
   subjectId: z.string(),
   activity: studyLogActivitySchema.optional(),
   courseId: z.string().nullable().optional(),
+  /** Chỉ với PRACTICE: phiên chat luyện AI đã ghi phút (mỗi phiên một buổi). */
+  practiceSessionId: z.string().optional(),
   minutes,
   sections: z.array(logSectionInputSchema).max(MAX_SECTIONS).optional(),
   note: z.string().trim().max(2000).nullable().optional(),

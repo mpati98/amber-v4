@@ -21,7 +21,7 @@ export type ScheduleLog = {
   logDate: string;
   courseTitle: string | null;
   minutes: number;
-  activity: "LESSON" | "CARD_REVIEW";
+  activity: "LESSON" | "CARD_REVIEW" | "PRACTICE";
   sections: { title: string; markedDone: boolean }[];
 };
 

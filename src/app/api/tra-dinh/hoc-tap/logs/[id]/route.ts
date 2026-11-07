@@ -37,10 +37,11 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
   const { activity, ...d } = parsed.data;
   if (activity !== undefined && activity !== log.activity) return badRequest("activity_locked");
   if (Object.keys(d).length === 0) return badRequest("empty_patch");
-  // Buổi ôn thẻ chỉ đổi được minutes / note: không gắn khóa, không có phần. (Buổi LESSON giữ nguyên như cũ.)
-  if (log.activity === "CARD_REVIEW") {
-    if (typeof body === "object" && body !== null && (body as { courseId?: unknown }).courseId != null) return badRequest("card_review_no_course");
-    if (d.sections !== undefined) return badRequest("card_review_no_sections");
+  // Buổi ôn thẻ / luyện AI chỉ đổi được minutes / note: không gắn khóa, không có phần. (Buổi LESSON giữ nguyên như cũ.)
+  if (log.activity !== "LESSON") {
+    const prefix = log.activity === "PRACTICE" ? "practice" : "card_review";
+    if (typeof body === "object" && body !== null && (body as { courseId?: unknown }).courseId != null) return badRequest(`${prefix}_no_course`);
+    if (d.sections !== undefined) return badRequest(`${prefix}_no_sections`);
   }
 
   if (d.sections !== undefined) {

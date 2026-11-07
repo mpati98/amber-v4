@@ -12,7 +12,7 @@ export const CARD_REVIEW_COURSE_TITLE = "Ôn thẻ";
 
 export type StatsRange = "7" | "30" | "all";
 
-export type StatsLog = { subjectId: string; courseId: string | null; courseTitle: string | null; logDate: string; minutes: number; activity: "LESSON" | "CARD_REVIEW" };
+export type StatsLog = { subjectId: string; courseId: string | null; courseTitle: string | null; logDate: string; minutes: number; activity: "LESSON" | "CARD_REVIEW" | "PRACTICE" };
 export type StatsCourse = {
   id: string;
   subjectId: string;

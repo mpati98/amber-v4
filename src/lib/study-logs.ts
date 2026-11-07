@@ -21,6 +21,7 @@ export async function logViews(dbx: DbLike, logIds: string[]) {
       minutes: studyLogs.minutes,
       note: studyLogs.note,
       activity: studyLogs.activity,
+      practiceSessionId: studyLogs.practiceSessionId,
       createdAt: studyLogs.createdAt,
     })
     .from(studyLogs)
