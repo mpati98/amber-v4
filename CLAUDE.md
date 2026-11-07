@@ -187,11 +187,12 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
 
 - **Backend** deploy bằng `git push origin main` (project Vercel `amber-v4` nối GitHub `mpati98/amber-v4`, nhánh `main`;
   alias `api.duangmai.io.vn`). Build ~40 giây. Deploy backend TRƯỚC, Flutter sau.
-- **Đang chạy** (06/11/2026): `dpl_8iQN7PQ4QVvsvwzinxXeyCfThF3R`, build từ commit `1942261` (commit docs cuối của đợt kho thẻ; code kho thẻ là 7 commit
-  `184ffcf`…`cd390ce` trước đó). **Mốc rollback** (bản trước đó, nhạc 24/10): `dpl_ALbgRnUGVcT1YAqT4M7YC8FEVYxE` (`965f324`); trước nữa
-  `dpl_5pfMRSrbGyDx6oHUgMuffd2mQ31t` (`7aeee22`). Rollback: `vercel rollback <id>` (khôi phục lại: `vercel promote <id>`) hoặc promote từ dashboard. DB không tự lùi —
-  migration chỉ thêm cột/bảng (có DEFAULT) nên bản cũ chạy được trên schema mới; đã kiểm với 0009 (brain đẩy log thành công lên bản cũ + schema mới),
-  với 0011 mới là suy luận, chưa thử trên production. Chưa kiểm: gói Vercel có cho rollback xa hơn "bản production ngay trước" hay không.
+- **Đang chạy** (07/11/2026): `dpl_GnH36PhDwqLmo6a6pzoXyMHF1wJu`, build từ commit `ff7dee8` (đợt luyện AI / PRACTICE: migration 0012 `7ed63b1`, API logs `7c9b376`,
+  overview `bb30e97`, rà `study_logs` + test `ff7dee8`). **Mốc rollback** (bản trước đó, kho thẻ 06/11): `dpl_8iQN7PQ4QVvsvwzinxXeyCfThF3R` (`1942261`); trước nữa
+  `dpl_ALbgRnUGVcT1YAqT4M7YC8FEVYxE` (`965f324`, nhạc 24/10) và `dpl_5pfMRSrbGyDx6oHUgMuffd2mQ31t` (`7aeee22`). Rollback: `vercel rollback <id>` (khôi phục lại: `vercel promote <id>`) hoặc promote từ dashboard. DB không tự lùi —
+  migration chỉ thêm cột/bảng/giá trị enum nên bản cũ chạy được trên schema mới (đã kiểm với 0009; 0011 và 0012 là suy luận, chưa thử trên production). **Rủi ro rollback sau 0012**: `ADD VALUE 'PRACTICE'` không gỡ được;
+  nếu lùi backend sau khi đã có log PRACTICE, bản cũ coi PRACTICE là học bài (`hasLessonToday`, nhánh "hôm nay" của lịch dùng `!== "CARD_REVIEW"`) nên lịch dự kiến có thể bị đẩy sai, `stats.byCourse` bị gộp sai — kiểm lịch và xoá log PRACTICE nếu cần.
+  Chưa kiểm: gói Vercel có cho rollback xa hơn "bản production ngay trước" hay không.
   Máy này không có `.vercel/project.json` của backend: tra deployment hiện tại bằng `vercel api /v9/projects/amber-v4` (`targets.production`), log bằng
   `vercel logs -p amber-v4 -d <id> --since 1h --json`.
 - **Migration production đã áp**: 0006 (`agent_logs`) và 0007 (buổi tập) ngày 13/10/2026; 0008 (`tra_dinh_hoc_tap`: 6 bảng `study_*` + cột
@@ -205,6 +206,10 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
   (mặc định `LESSON`) và `study_subjects.card_daily_quota` (mặc định 20, CHECK 1–20); 38 bảng cũ giữ nguyên số dòng (đã so với file đếm dòng trước migrate),
   `study_logs` 0 dòng, `study_subjects` 1 dòng quota 20. **KHÔNG có nhánh sao lưu** (người dùng chọn dựa vào point-in-time restore của Neon), nên luôn ghi mốc UTC ngay trước migrate.
   Deploy: backend `dpl_8iQN7PQ4QVvsvwzinxXeyCfThF3R` Ready lúc 16:14:48 UTC; smoke test 401 / CORS / `/api/health` đều đúng; log runtime không có lỗi.
+- **Migration production 0012** (`0012_abandoned_jack_flag`: luyện AI) áp ngày **07/11/2026 lúc 08:33:21 UTC** (mốc PITR: `2026-11-07T08:33:21Z`, ghi ngay trước lệnh migrate). `study_log_activity` thêm `PRACTICE`;
+  cột `study_logs.practice_session_id` (uuid null, unique index `study_logs_practice_session_id_key`, FK `study_logs_practice_session_id_fk` → `practice_session_details(project_id)` `ON DELETE SET NULL`).
+  `drizzle.__drizzle_migrations` = 13/13; `study_logs` 0, `study_cards` 0, `practice_session_details` 1, 41 bảng `public`, số dư ví (Cash 2.387.000, Momo −3.350.565) đều giống hệt trước migrate. **KHÔNG có nhánh sao lưu** (dựa vào PITR).
+  Deploy: backend `dpl_GnH36PhDwqLmo6a6pzoXyMHF1wJu` Ready (push `ff7dee8`); smoke test `/api/health` 200, route có token 401, preflight từ `amber.duangmai.io.vn` 204; log runtime không có lỗi.
 - **Quy trình migrate production đã chạy tốt** — làm lại đúng thế này:
   1. Sao lưu: tạo nhánh Neon từ production (console; máy này không có `neonctl`). Nếu người dùng bỏ bước này (06/11/2026) thì dựa vào point-in-time restore và ghi mốc UTC (có giây) ngay trước lệnh migrate.
   2. Thử trước trên nhánh tách từ production (`test-migrate-*`): ghi số dòng + số dư ví + số migration đã áp
