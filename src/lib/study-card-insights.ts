@@ -1,5 +1,5 @@
 import { addDaysIso } from "@/lib/deadline-alert";
-import { CARD_REVIEW_COURSE_TITLE, REVIEW_COURSE_TITLE } from "@/lib/study-stats";
+import { CARD_REVIEW_COURSE_TITLE, PRACTICE_COURSE_TITLE, REVIEW_COURSE_TITLE } from "@/lib/study-stats";
 import { vnDayStart } from "@/lib/vn-time";
 
 // Thống kê nhóm khó của thẻ từ vựng (mục 7 của kế hoạch). Hàm thuần — test ở study-card-insights.test.ts.
@@ -60,10 +60,10 @@ export function buildInsights(input: { cards: readonly InsightCard[]; reviews: r
   };
 }
 
-/** Nhãn nhóm theo buổi học: "dd/MM · tên khóa"; buổi không khóa → "Ôn tập" (hoặc "Ôn thẻ" nếu là buổi ôn thẻ). */
+/** Nhãn nhóm theo buổi học: "dd/MM · tên khóa"; buổi không khóa → "Ôn tập" (hoặc "Ôn thẻ" / "Luyện AI" nếu là buổi ôn thẻ / luyện AI). */
 export function lessonLabel(logDate: string, courseTitle: string | null, activity: string): string {
   const [, month, day] = logDate.split("-");
-  const what = courseTitle ?? (activity === "CARD_REVIEW" ? CARD_REVIEW_COURSE_TITLE : REVIEW_COURSE_TITLE);
+  const what = courseTitle ?? (activity === "CARD_REVIEW" ? CARD_REVIEW_COURSE_TITLE : activity === "PRACTICE" ? PRACTICE_COURSE_TITLE : REVIEW_COURSE_TITLE);
   return `${day}/${month} · ${what}`;
 }
 

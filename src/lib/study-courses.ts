@@ -81,7 +81,7 @@ export async function forecastSubject(dbx: DbLike, subject: SubjectRow) {
         .orderBy(asc(studyCourseSections.position))
     : [];
   const today = vnToday();
-  // Chỉ buổi học bài mới đẩy lịch sang ngày mai; phút ôn thẻ (CARD_REVIEW) thì không.
+  // Chỉ buổi học bài mới đẩy lịch sang ngày mai; phút ôn thẻ (CARD_REVIEW) và luyện AI (PRACTICE) thì không.
   const todayLogs = await dbx
     .select({ logDate: studyLogs.logDate, activity: studyLogs.activity })
     .from(studyLogs)

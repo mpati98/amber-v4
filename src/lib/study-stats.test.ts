@@ -1,7 +1,7 @@
 // Test thống kê học tập — chạy: npm test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildStats, CARD_REVIEW_COURSE_TITLE, REVIEW_COURSE_TITLE, planDelta, progressPct, statsBounds, type StatsCourse, type StatsInput, type StatsLog } from "./study-stats";
+import { buildStats, CARD_REVIEW_COURSE_TITLE, PRACTICE_COURSE_TITLE, REVIEW_COURSE_TITLE, planDelta, progressPct, statsBounds, type StatsCourse, type StatsInput, type StatsLog } from "./study-stats";
 
 const log = (logDate: string, minutes: number, o: Partial<StatsLog> = {}): StatsLog => ({ subjectId: "a", courseId: "c1", courseTitle: "Khóa 1", logDate, minutes, activity: "LESSON", ...o });
 const course = (o: Partial<StatsCourse> = {}): StatsCourse => ({
@@ -152,4 +152,33 @@ test("phút CARD_REVIEW vẫn tính vào tổng, trung bình, số ngày đạt 
   assert.equal(s.totalMinutes, 60);
   assert.equal(s.logCount, 2);
   assert.equal(s.goalDays.met, 1); // mục tiêu 60: 45 học bài + 15 ôn thẻ
+});
+
+test("byCourse: buổi PRACTICE là mục riêng \"Luyện AI\", tách khỏi \"Ôn thẻ\" và \"Ôn tập\" (ba mục không khóa, ba dòng)", () => {
+  const none = { courseId: null, courseTitle: null };
+  const s = buildStats(input({
+    logs: [
+      log("2026-10-13", 10, none),
+      log("2026-10-13", 15, { ...none, activity: "CARD_REVIEW" }),
+      log("2026-10-13", 25, { ...none, activity: "PRACTICE" }),
+      log("2026-10-14", 5, { ...none, activity: "PRACTICE" }),
+    ],
+    firstLogDates: new Map([["a", "2026-10-13"]]),
+  }));
+  assert.deepEqual(s.byCourse, [
+    { courseId: null, title: PRACTICE_COURSE_TITLE, minutes: 30, logCount: 2 },
+    { courseId: null, title: CARD_REVIEW_COURSE_TITLE, minutes: 15, logCount: 1 },
+    { courseId: null, title: REVIEW_COURSE_TITLE, minutes: 10, logCount: 1 },
+  ]);
+  assert.equal(PRACTICE_COURSE_TITLE, "Luyện AI");
+});
+
+test("phút PRACTICE tính vào tổng, số buổi và số ngày đạt mục tiêu", () => {
+  const s = buildStats(input({
+    logs: [log("2026-10-14", 30), log("2026-10-14", 30, { courseId: null, courseTitle: null, activity: "PRACTICE" })],
+    firstLogDates: new Map([["a", "2026-10-14"]]),
+  }));
+  assert.equal(s.totalMinutes, 60);
+  assert.equal(s.logCount, 2);
+  assert.equal(s.goalDays.met, 1); // mục tiêu 60: 30 học bài + 30 luyện AI
 });

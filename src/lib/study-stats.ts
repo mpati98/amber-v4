@@ -9,6 +9,8 @@ export const WEEK_BUCKET_THRESHOLD_DAYS = 92;
 export const REVIEW_COURSE_TITLE = "Ôn tập";
 /** Buổi ôn thẻ từ vựng (CARD_REVIEW) thành mục riêng trong byCourse, không gộp vào "Ôn tập". */
 export const CARD_REVIEW_COURSE_TITLE = "Ôn thẻ";
+/** Buổi luyện chat AI (PRACTICE) cũng là mục riêng trong byCourse, tách khỏi "Ôn thẻ" và "Ôn tập". */
+export const PRACTICE_COURSE_TITLE = "Luyện AI";
 
 export type StatsRange = "7" | "30" | "all";
 
@@ -105,16 +107,17 @@ export function buildStats(input: StatsInput) {
     }
   }
 
-  // Khoá gộp: id khóa; buổi ôn không khóa → "review"; buổi ôn thẻ → "cards". Cả hai mục không khóa vẫn trả courseId null.
+  // Khoá gộp: id khóa; buổi ôn không khóa → "review"; buổi ôn thẻ → "cards"; buổi luyện AI → "practice".
+  // Cả ba mục không khóa vẫn trả courseId null, nên client không được dùng courseId làm khoá duy nhất.
   const courseAgg = new Map<string, { courseId: string | null; title: string; minutes: number; logCount: number }>();
   for (const l of logs) {
-    const key = l.activity === "CARD_REVIEW" ? "cards" : (l.courseId ?? "review");
-    const cur = courseAgg.get(key) ?? {
-      courseId: l.activity === "CARD_REVIEW" ? null : l.courseId,
-      title: l.activity === "CARD_REVIEW" ? CARD_REVIEW_COURSE_TITLE : l.courseId === null ? REVIEW_COURSE_TITLE : (l.courseTitle ?? ""),
-      minutes: 0,
-      logCount: 0,
-    };
+    const [key, courseId, title] =
+      l.activity === "CARD_REVIEW"
+        ? (["cards", null, CARD_REVIEW_COURSE_TITLE] as const)
+        : l.activity === "PRACTICE"
+          ? (["practice", null, PRACTICE_COURSE_TITLE] as const)
+          : ([l.courseId ?? "review", l.courseId, l.courseId === null ? REVIEW_COURSE_TITLE : (l.courseTitle ?? "")] as const);
+    const cur = courseAgg.get(key) ?? { courseId, title, minutes: 0, logCount: 0 };
     courseAgg.set(key, { ...cur, minutes: cur.minutes + l.minutes, logCount: cur.logCount + 1 });
   }
   const byCourse = [...courseAgg.values()].sort((a, b) => b.minutes - a.minutes || a.title.localeCompare(b.title));

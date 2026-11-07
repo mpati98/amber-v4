@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 import { buildOverview, datesBetween, dayDiff, lastQueueDelta, mondayOf, suggestedPerDay, weekBounds } from "./study-overview";
 
 // 2026-10-14 là thứ Tư; tuần 10-12 (T2) → 10-18 (CN).
-const course = (o: Partial<{ id: string; title: string; status: string; queuePosition: number | null; deltaDays: number | null; next: string | null }> = {}) => ({
+const course = (o: Partial<{ id: string; title: string; status: string; queuePosition: number | null; deltaDays: number | null; next: string | null; minutes: number }> = {}) => ({
   id: o.id ?? "c", title: o.title ?? "Khóa", status: o.status ?? "QUEUED", queuePosition: o.queuePosition ?? null, deltaDays: o.deltaDays ?? null,
-  nextSection: o.next === null ? null : { id: `${o.id ?? "c"}-s`, title: o.next ?? "Phần" },
+  nextSection: o.next === null ? null : { id: `${o.id ?? "c"}-s`, title: o.next ?? "Phần", ...(o.minutes !== undefined ? { minutes: o.minutes } : {}) },
 });
 
 test("tuần cắt đúng thứ Hai–Chủ nhật", () => {
@@ -96,8 +96,9 @@ test("không có môn nào có mục tiêu → mọi số 0, day.done false", ()
 
 test("môn: today, reason, done chỉ khi có mục tiêu", () => {
   const s = buildOverview(base).subjects;
-  assert.deepEqual(s[0].today, { minutes: 20, logCount: 2, done: false, reason: null });
-  assert.deepEqual(s[1].today, { minutes: 0, logCount: 0, done: false, reason: { code: "BUSY", text: null } });
+  const none = { LESSON: 0, CARD_REVIEW: 0, PRACTICE: 0 };
+  assert.deepEqual(s[0].today, { minutes: 20, logCount: 2, done: false, reason: null, minutesByActivity: none });
+  assert.deepEqual(s[1].today, { minutes: 0, logCount: 0, done: false, reason: { code: "BUSY", text: null }, minutesByActivity: none });
   assert.equal(s[2].goalMinutes, null);
   assert.equal(s[2].today.done, false);
 });
@@ -110,7 +111,7 @@ test("next: phần kế tiếp của khóa ACTIVE, không có thì khóa QUEUED 
     course({ id: "d", status: "DONE", next: null }),
     course({ id: "w", status: "WISHLIST" }),
   ]]]) }).subjects[0];
-  assert.deepEqual(withActive.next, { courseId: "act", courseTitle: "Khóa", sectionId: "act-s", sectionTitle: "A1" });
+  assert.deepEqual(withActive.next, { courseId: "act", courseTitle: "Khóa", sectionId: "act-s", sectionTitle: "A1", minutes: null });
   assert.equal(withActive.activeCourse?.id, "act");
   assert.deepEqual(withActive.counts, { QUEUED: 2, DONE: 1, WISHLIST: 1 });
 
@@ -152,4 +153,36 @@ test("week.days[].done theo từng môn: A 90/60 + B 30/60 → false; cả hai �
 test("môn không có mục tiêu không chặn done của ngày", () => {
   const o = buildOverview({ ...base, subjects: [{ id: "a", name: "A", dailyGoalMinutes: 60 }, { id: "n", name: "n", dailyGoalMinutes: null }], totals: new Map([["a", new Map([["2026-10-12", 60]])]]) });
   assert.equal(o.week.days[0].done, true);
+});
+
+test("minutesByActivity: loại thiếu = 0; PRACTICE tính vào done của môn (tổng phút đã gồm PRACTICE)", () => {
+  const o = buildOverview({
+    ...base,
+    totals: new Map([["a", new Map([["2026-10-14", 60]])]]), // 30 học + 10 ôn thẻ + 20 luyện AI
+    todayByActivity: new Map([["a", { LESSON: 30, CARD_REVIEW: 10, PRACTICE: 20 }], ["b", { PRACTICE: 5 }]]),
+  });
+  const [a, b, n] = o.subjects;
+  assert.deepEqual(a.today.minutesByActivity, { LESSON: 30, CARD_REVIEW: 10, PRACTICE: 20 });
+  assert.equal(a.today.minutes, 60);
+  assert.equal(a.today.done, true);
+  assert.deepEqual(b.today.minutesByActivity, { LESSON: 0, CARD_REVIEW: 0, PRACTICE: 5 });
+  assert.deepEqual(n.today.minutesByActivity, { LESSON: 0, CARD_REVIEW: 0, PRACTICE: 0 });
+});
+
+test("streak và pendingReasonDates theo môn: lấy từ map truyền vào, thiếu = 0 / rỗng", () => {
+  const o = buildOverview({ ...base, streaks: new Map([["a", 4]]), pendingReasonDates: new Map([["a", ["2026-10-12", "2026-10-13"]]]) });
+  assert.equal(o.subjects[0].streak, 4);
+  assert.deepEqual(o.subjects[0].pendingReasonDates, ["2026-10-12", "2026-10-13"]);
+  assert.equal(o.subjects[1].streak, 0);
+  assert.deepEqual(o.subjects[1].pendingReasonDates, []);
+  const bare = buildOverview(base); // không truyền map (nơi gọi cũ): vẫn có đủ trường
+  assert.equal(bare.subjects[0].streak, 0);
+  assert.deepEqual(bare.subjects[0].pendingReasonDates, []);
+});
+
+test("next.minutes: số phút của phần kế tiếp; khóa cũ không có minutes → null", () => {
+  const withMinutes = buildOverview({ ...base, coursesBySubject: new Map([["a", [course({ id: "act", status: "ACTIVE", next: "A1", minutes: 25 })]]]) }).subjects[0].next;
+  assert.equal(withMinutes?.minutes, 25);
+  const without = buildOverview({ ...base, coursesBySubject: new Map([["a", [course({ id: "act", status: "ACTIVE", next: "A1" })]]]) }).subjects[0].next;
+  assert.equal(without?.minutes, null);
 });

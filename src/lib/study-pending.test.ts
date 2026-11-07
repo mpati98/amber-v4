@@ -81,3 +81,9 @@ test("needsReason: ngày 20 ngày trước vẫn thiếu → true (không giới
   assert.ok(!pending.includes(old));
   assert.equal(pending.length, PENDING_REASON_LOOKBACK_DAYS);
 });
+
+test("phút luyện AI nằm trong tổng ngày nên ngày đủ mục tiêu nhờ PRACTICE không còn thiếu lý do", () => {
+  // dayTotals cộng mọi loại buổi; 10-12: 30 học bài + 30 luyện AI = 60 ≥ goal 60, 10-13: chỉ 30 học bài.
+  const r = computePendingReasonDates({ ...base, createdDate: "2026-10-12", totals: new Map([["2026-10-12", 30 + 30], ["2026-10-13", 30]]) });
+  assert.deepEqual(r, ["2026-10-13"]);
+});

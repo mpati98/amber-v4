@@ -102,6 +102,8 @@ test("hasLessonToday: chỉ buổi học bài hôm nay mới đẩy lịch sang 
   assert.equal(hasLessonToday([], today), false);
   assert.equal(hasLessonToday([{ logDate: today, activity: "LESSON" }], today), true);
   assert.equal(hasLessonToday([{ logDate: today, activity: "CARD_REVIEW" }], today), false);
+  assert.equal(hasLessonToday([{ logDate: today, activity: "PRACTICE" }], today), false); // luyện AI không tiến lịch dự kiến
+  assert.equal(hasLessonToday([{ logDate: today, activity: "PRACTICE" }, { logDate: today, activity: "LESSON" }], today), true);
   assert.equal(hasLessonToday([{ logDate: today, activity: "CARD_REVIEW" }, { logDate: today, activity: "LESSON" }], today), true);
   assert.equal(hasLessonToday([{ logDate: "2026-10-11", activity: "LESSON" }], today), false); // log ngày khác không tính
 });
@@ -111,5 +113,6 @@ test("lịch bắt đầu hôm nay khi hôm nay chỉ có buổi ôn thẻ, từ
   const courses = [{ id: "c1", sections: [sec("a", 30)] }];
   const run = (logs: { logDate: string; activity: string }[]) => forecast({ ...base, today, startFromTomorrow: hasLessonToday(logs, today), courses });
   assert.equal(run([{ logDate: today, activity: "CARD_REVIEW" }]).days[0].date, today);
+  assert.equal(run([{ logDate: today, activity: "PRACTICE" }]).days[0].date, today);
   assert.equal(run([{ logDate: today, activity: "LESSON" }]).days[0].date, "2026-10-13");
 });

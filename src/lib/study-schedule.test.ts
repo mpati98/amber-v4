@@ -69,6 +69,17 @@ test("hôm nay chỉ có buổi ôn thẻ (CARD_REVIEW): vẫn còn kế hoạch
   assert.equal(r.plannedItems.length, 1);
 });
 
+test("hôm nay chỉ có buổi luyện AI (PRACTICE): vẫn còn kế hoạch học bài, phút luyện AI vẫn tính vào ngày", () => {
+  const r = day(buildSchedule(input({
+    totals: new Map([["2026-10-14", 20]]),
+    logs: [{ id: "p1", logDate: "2026-10-14", courseTitle: null, minutes: 20, activity: "PRACTICE", sections: [] }],
+    forecastDays: [{ date: "2026-10-14", items: [item(40)] }],
+  })), "2026-10-14");
+  assert.equal(r.minutes, 20);
+  assert.deepEqual(r.logs, [{ id: "p1", courseTitle: null, minutes: 20, activity: "PRACTICE", sections: [] }]);
+  assert.equal(r.plannedItems.length, 1);
+});
+
 test("hôm nay có buổi học bài lẫn ôn thẻ: không còn kế hoạch (như trước)", () => {
   const r = day(buildSchedule(input({
     totals: new Map([["2026-10-14", 35]]),
