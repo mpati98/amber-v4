@@ -1,5 +1,5 @@
 import { relations, sql } from "drizzle-orm";
-import { boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, check, date, foreignKey, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 
 // Enum đổi tên từ "DocumentType" (Prisma) sang "document_type" — 5 giá trị
 // giữ nguyên thứ tự thật trong DB.
@@ -20,7 +20,7 @@ export const exerciseMeasure = pgEnum("exercise_measure", ["REPS", "SETS_REPS", 
 export const studyCourseStatus = pgEnum("study_course_status", ["WISHLIST", "QUEUED", "ACTIVE", "DONE"]);
 export const studyReasonCode = pgEnum("study_reason_code", ["BUSY", "TIRED", "AWAY", "OTHER"]);
 // Loại buổi học: LESSON = học bài (khóa/phần), CARD_REVIEW = phút ôn thẻ từ vựng (không khóa, không phần).
-export const studyLogActivity = pgEnum("study_log_activity", ["LESSON", "CARD_REVIEW"]);
+export const studyLogActivity = pgEnum("study_log_activity", ["LESSON", "CARD_REVIEW", "PRACTICE"]);
 
 // Thẻ từ vựng (Trà Đình): giai đoạn ôn, mức đánh giá, loại thẻ, nguồn thẻ trong kế hoạch ngày.
 export const studyCardStage = pgEnum("study_card_stage", ["NEW", "LEARNING", "WEEKLY", "MONTHLY", "QUARTERLY"]);
@@ -408,10 +408,15 @@ export const studyLogs = pgTable(
     minutes: integer("minutes").notNull(),
     note: text("note"),
     activity: studyLogActivity("activity").notNull().default("LESSON"),
+    // Chỉ có với activity = PRACTICE: phiên chat luyện AI đã ghi phút (mỗi phiên tối đa một buổi). Xoá phiên thì giữ log.
+    practiceSessionId: uuid("practice_session_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("study_logs_subject_id_log_date_idx").on(table.subjectId, table.logDate),
+    uniqueIndex("study_logs_practice_session_id_key").on(table.practiceSessionId),
+    // Tên FK đặt tay: tên tự sinh dài hơn 63 ký tự (giới hạn định danh của Postgres).
+    foreignKey({ columns: [table.practiceSessionId], foreignColumns: [practiceSessionDetails.projectId], name: "study_logs_practice_session_id_fk" }).onDelete("set null"),
     check("study_logs_minutes_check", sql`${table.minutes} between 1 and 1440`),
   ]
 );
