@@ -134,7 +134,7 @@ function makeView(c: CourseRow, sections: SectionRow[], forecastFinish: string |
       doneMinutes: done.reduce((n, s) => n + s.durationMinutes, 0),
       totalMinutes: sections.reduce((n, s) => n + s.durationMinutes, 0),
     },
-    nextSection: next ? { id: next.id, title: next.title } : null,
+    nextSection: next ? { id: next.id, title: next.title, minutes: next.durationMinutes } : null,
   };
 }
 

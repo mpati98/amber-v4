@@ -56,7 +56,7 @@ export function lastQueueDelta(courses: QueueCourse[]): number | null {
 export type OverviewCourse = QueueCourse & {
   id: string;
   title: string;
-  nextSection: { id: string; title: string } | null;
+  nextSection: { id: string; title: string; minutes?: number } | null;
 };
 
 export type OverviewInput<C extends OverviewCourse> = {
@@ -71,10 +71,18 @@ export type OverviewInput<C extends OverviewCourse> = {
   todayReasons: ReadonlyMap<string, { code: string; text: string | null }>;
   /** Mọi khóa của từng môn (dạng courseView). */
   coursesBySubject: ReadonlyMap<string, C[]>;
+  /** subjectId → phút hôm nay theo loại buổi (thiếu loại nào = 0). */
+  todayByActivity?: ReadonlyMap<string, Partial<Record<ActivityKey, number>>>;
+  /** subjectId → chuỗi ngày đủ mục tiêu (cùng cách tính với routine STUDY). */
+  streaks?: ReadonlyMap<string, number>;
+  /** subjectId → ngày còn thiếu lý do (cùng cách tính với routine STUDY). */
+  pendingReasonDates?: ReadonlyMap<string, string[]>;
 };
 
+export type ActivityKey = "LESSON" | "CARD_REVIEW" | "PRACTICE";
+
 export function buildOverview<C extends OverviewCourse>(input: OverviewInput<C>) {
-  const { today, subjects, totals, todayLogCounts, todayReasons, coursesBySubject } = input;
+  const { today, subjects, totals, todayLogCounts, todayReasons, coursesBySubject, todayByActivity, streaks, pendingReasonDates } = input;
   const { start, end } = weekBounds(today);
   const weekDates = datesBetween(start, end);
   const minutesOn = (subjectId: string, d: string) => totals.get(subjectId)?.get(d) ?? 0;
@@ -135,9 +143,22 @@ export function buildOverview<C extends OverviewCourse>(input: OverviewInput<C>)
           logCount: todayLogCounts.get(s.id) ?? 0,
           done: s.dailyGoalMinutes !== null && minutes >= s.dailyGoalMinutes,
           reason: todayReasons.get(s.id) ?? null,
+          minutesByActivity: {
+            LESSON: todayByActivity?.get(s.id)?.LESSON ?? 0,
+            CARD_REVIEW: todayByActivity?.get(s.id)?.CARD_REVIEW ?? 0,
+            PRACTICE: todayByActivity?.get(s.id)?.PRACTICE ?? 0,
+          },
         },
+        streak: streaks?.get(s.id) ?? 0,
+        pendingReasonDates: pendingReasonDates?.get(s.id) ?? [],
         next: nextCourse?.nextSection
-          ? { courseId: nextCourse.id, courseTitle: nextCourse.title, sectionId: nextCourse.nextSection.id, sectionTitle: nextCourse.nextSection.title }
+          ? {
+              courseId: nextCourse.id,
+              courseTitle: nextCourse.title,
+              sectionId: nextCourse.nextSection.id,
+              sectionTitle: nextCourse.nextSection.title,
+              minutes: nextCourse.nextSection.minutes ?? null,
+            }
           : null,
         activeCourse: active,
         counts: {

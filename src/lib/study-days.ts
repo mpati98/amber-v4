@@ -1,7 +1,8 @@
-import { and, between, eq, inArray, sql } from "drizzle-orm";
+import { and, between, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { routines, studyDayReasons, studyLogs, studySubjects } from "@/db/schema";
 import { addDaysIso } from "@/lib/deadline-alert";
+import { routineStats, STREAK_LOOKBACK_DAYS } from "@/lib/routine-stats";
 import { computePendingReasonDates, PENDING_REASON_LOOKBACK_DAYS } from "@/lib/study-pending";
 import { vnToday } from "@/lib/vn-time";
 
@@ -103,6 +104,31 @@ export async function studyRoutineExtras(dbx: DbLike, rows: RoutineRow[], ref: s
           })
         : [],
     });
+  }
+  return out;
+}
+
+const ALL_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
+
+/**
+ * Chuỗi ngày + ngày thiếu lý do THEO MÔN, tính đúng như thẻ routine STUDY (cùng `studyRoutineExtras` và `routineStats`).
+ * Môn có routine STUDY (chưa lưu trữ) thì dùng routine đó (thứ đến hạn, ngày tạo); môn chưa có thì coi như routine
+ * ảo mọi ngày trong tuần, tính từ ngày tạo môn.
+ */
+export async function subjectStudyStats(dbx: DbLike, userId: string, subjects: SubjectRow[], ref: string): Promise<Map<string, { streak: number; pendingReasonDates: string[] }>> {
+  const out = new Map<string, { streak: number; pendingReasonDates: string[] }>();
+  if (subjects.length === 0) return out;
+  const real = await dbx
+    .select()
+    .from(routines)
+    .where(and(eq(routines.userId, userId), eq(routines.kind, "STUDY"), isNull(routines.archivedAt), inArray(routines.studySubjectId, subjects.map((s) => s.id))));
+  const realBySubject = new Map(real.flatMap((r) => (r.studySubjectId ? [[r.studySubjectId, r] as const] : [])));
+  // Khoá routine ảo = id môn (id routine thật là uuid khác nên không đụng nhau).
+  const rows: RoutineRow[] = subjects.map((s) => realBySubject.get(s.id) ?? ({ id: s.id, studySubjectId: s.id, weekdays: ALL_WEEKDAYS, createdAt: s.createdAt } as RoutineRow));
+  const extras = await studyRoutineExtras(dbx, rows, ref, STREAK_LOOKBACK_DAYS);
+  for (const [i, s] of subjects.entries()) {
+    const extra = extras.get(rows[i].id)!;
+    out.set(s.id, { streak: routineStats(rows[i].weekdays, extra.doneDates, ref).streak, pendingReasonDates: extra.pendingReasonDates });
   }
   return out;
 }
