@@ -115,6 +115,7 @@ export const createCardSchema = z.object({
   meaning: z.string(),
   example: z.string(),
   note: z.string().nullable().optional(),
+  pronunciation: z.string().nullable().optional(),
   kind: z.string(),
   topics: z.array(z.string()).optional(),
 });
@@ -125,6 +126,7 @@ export const patchCardSchema = z
     meaning: z.string(),
     example: z.string(),
     note: z.string().nullable(),
+    pronunciation: z.string().nullable(),
     kind: z.string(),
     topics: z.array(z.string()),
     suspended: z.boolean(),

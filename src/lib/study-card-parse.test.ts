@@ -96,3 +96,38 @@ test("parseCards: mỗi thẻ hợp lệ mang index gốc trong đầu vào", ()
   const r = parseCards([{ ...ok, kind: "X" }, ok, { ...ok, phrase: "break the ice" }]);
   assert.deepEqual(r.cards.map((c) => c.index), [1, 2]);
 });
+
+test("pronunciation: thiếu → null, cắt khoảng trắng, rỗng → null", () => {
+  assert.equal(validateCard(ok).ok && (validateCard(ok) as { card: { pronunciation: string | null } }).card.pronunciation, null);
+  const a = validateCard({ ...ok, pronunciation: "  /lʊk ˈfɔːwəd tə/ " });
+  assert.ok(a.ok);
+  if (a.ok) assert.equal(a.card.pronunciation, "/lʊk ˈfɔːwəd tə/");
+  const b = validateCard({ ...ok, pronunciation: "   " });
+  assert.ok(b.ok);
+  if (b.ok) assert.equal(b.card.pronunciation, null);
+});
+
+test("pronunciation: cập nhật về null được chấp nhận", () => {
+  const r = validateCard({ ...ok, pronunciation: null });
+  assert.ok(r.ok);
+  if (r.ok) assert.equal(r.card.pronunciation, null);
+});
+
+test("pronunciation: quá 100 ký tự là lỗi too_long, đúng 100 thì được", () => {
+  const bad = validateCard({ ...ok, pronunciation: "a".repeat(101) });
+  assert.ok(!bad.ok);
+  if (!bad.ok) assert.deepEqual(bad.errors, [{ field: "pronunciation", reason: "too_long" }]);
+  assert.ok(validateCard({ ...ok, pronunciation: "a".repeat(100) }).ok);
+  assert.ok(!validateCard({ ...ok, pronunciation: 5 }).ok);
+});
+
+test("nhập hàng loạt: phiên âm quá dài bị bỏ, thẻ vẫn giữ", () => {
+  const r = parseCards([
+    { ...ok, pronunciation: "a".repeat(101) },
+    { ...ok, phrase: "take care of", pronunciation: "/teɪk/" },
+  ]);
+  assert.deepEqual(r.errors, []);
+  assert.equal(r.cards.length, 2);
+  assert.equal(r.cards[0].pronunciation, null);
+  assert.equal(r.cards[1].pronunciation, "/teɪk/");
+});

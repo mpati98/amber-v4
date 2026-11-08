@@ -18,7 +18,7 @@ export const GET = withAuth(async (_req, userId, { params }: RouteParams) => {
   return card ? NextResponse.json(cardView(card)) : notFound();
 });
 
-// Chỉ sửa nội dung (phrase, meaning, example, note, kind, topics) và suspended. Môn, giai đoạn, hạn, số đếm
+// Chỉ sửa nội dung (phrase, meaning, example, note, pronunciation, kind, topics) và suspended. Môn, giai đoạn, hạn, số đếm
 // không đổi được ở đây: khoá lạ trong body bị bỏ qua.
 export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
   const { id } = await params;
@@ -35,7 +35,7 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
   const set: Partial<typeof studyCards.$inferInsert> = {};
   if (d.suspended !== undefined) set.suspended = d.suspended;
 
-  const touchesContent = ["phrase", "meaning", "example", "note", "kind", "topics"].some((k) => k in d);
+  const touchesContent = ["phrase", "meaning", "example", "note", "pronunciation", "kind", "topics"].some((k) => k in d);
   if (touchesContent) {
     // Kiểm tra cả thẻ sau khi gộp để luật nội dung (cụm ≥ 2 từ, tối đa 3 chủ đề...) áp dụng như lúc tạo.
     const valid = validateCard({ ...cardView(card), ...d });
@@ -48,6 +48,7 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
     if (d.meaning !== undefined) set.meaning = c.meaning;
     if (d.example !== undefined) set.example = c.example;
     if (d.note !== undefined) set.note = c.note;
+    if (d.pronunciation !== undefined) set.pronunciation = c.pronunciation;
     if (d.kind !== undefined) set.kind = c.kind;
     if (d.topics !== undefined) set.topics = c.topics;
 

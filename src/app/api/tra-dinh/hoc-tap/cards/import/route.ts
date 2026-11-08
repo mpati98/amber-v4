@@ -44,6 +44,7 @@ export const POST = withAuth(async (req, userId) => {
             meaning: c.meaning,
             example: c.example,
             note: c.note,
+            pronunciation: c.pronunciation,
             kind: c.kind,
             topics: c.topics,
             createdAt: new Date(base + i),

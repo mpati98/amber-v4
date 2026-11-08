@@ -9,8 +9,9 @@ export type CardKind = (typeof CARD_KINDS)[number];
 export const MAX_CARDS_PER_IMPORT = 100;
 export const MAX_TOPICS_PER_CARD = 3;
 export const MAX_PHRASE_LENGTH = 255;
+export const MAX_PRONUNCIATION_LENGTH = 100;
 
-export type CardFields = { phrase: string; phraseKey: string; meaning: string; example: string; note: string | null; kind: CardKind; topics: string[] };
+export type CardFields = { phrase: string; phraseKey: string; meaning: string; example: string; note: string | null; pronunciation: string | null; kind: CardKind; topics: string[] };
 /** index = vị trí (từ 0) của thẻ trong mảng đầu vào. */
 export type ParsedCard = CardFields & { index: number };
 /** index = vị trí (từ 0) của phần tử trong mảng; null = lỗi của cả đầu vào. */
@@ -65,6 +66,15 @@ export function validateCard(item: unknown): CardValidation {
     else note = o.note.trim() || null;
   }
 
+  let pronunciation: string | null = null;
+  if (o.pronunciation !== undefined && o.pronunciation !== null) {
+    if (typeof o.pronunciation !== "string") err("pronunciation", "invalid");
+    else {
+      pronunciation = o.pronunciation.trim() || null;
+      if (pronunciation !== null && pronunciation.length > MAX_PRONUNCIATION_LENGTH) err("pronunciation", "too_long");
+    }
+  }
+
   if (typeof o.kind !== "string" || !(CARD_KINDS as readonly string[]).includes(o.kind)) err("kind", "invalid");
 
   let topics: string[] = [];
@@ -77,7 +87,15 @@ export function validateCard(item: unknown): CardValidation {
   }
 
   if (errors.length > 0) return { ok: false, errors };
-  return { ok: true, card: { phrase: phrase!, phraseKey: phraseKey(phrase!), meaning: meaning!, example: example!, note, kind: o.kind as CardKind, topics } };
+  return { ok: true, card: { phrase: phrase!, phraseKey: phraseKey(phrase!), meaning: meaning!, example: example!, note, pronunciation, kind: o.kind as CardKind, topics } };
+}
+
+/** Nhập hàng loạt: phiên âm quá dài thì bỏ riêng trường đó, vẫn giữ thẻ. */
+function dropLongPronunciation(item: unknown): unknown {
+  if (typeof item !== "object" || item === null || Array.isArray(item)) return item;
+  const p = (item as Record<string, unknown>).pronunciation;
+  if (typeof p === "string" && p.trim().length > MAX_PRONUNCIATION_LENGTH) return { ...item, pronunciation: null };
+  return item;
 }
 
 /**
@@ -98,7 +116,7 @@ export function parseCards(value: unknown): CardParseResult {
 
   const firstIndexByKey = new Map<string, number>();
   value.forEach((item, index) => {
-    const v = validateCard(item);
+    const v = validateCard(dropLongPronunciation(item));
     if (!v.ok) {
       for (const e of v.errors) result.errors.push({ index, ...e });
       return;

@@ -18,6 +18,7 @@ export const cardView = (c: CardRow) => ({
   meaning: c.meaning,
   example: c.example,
   note: c.note,
+  pronunciation: c.pronunciation,
   kind: c.kind,
   topics: c.topics,
   stage: c.stage,
@@ -45,6 +46,8 @@ export async function findSourceLog(dbx: DbLike, logId: string, userId: string, 
 
 /** 400 cùng dạng với zod flatten để client dùng chung một chỗ đọc lỗi. */
 export function invalidCard(errors: CardFieldError[]) {
+  // Phiên âm quá dài có mã lỗi riêng cho client.
+  if (errors.some((e) => e.field === "pronunciation" && e.reason === "too_long")) return NextResponse.json({ error: "pronunciation_too_long" }, { status: 400 });
   const fieldErrors: Record<string, string[]> = {};
   const formErrors: string[] = [];
   for (const e of errors) {
