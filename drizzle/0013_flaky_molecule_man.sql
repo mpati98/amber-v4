@@ -1,0 +1,1 @@
+ALTER TABLE "study_cards" ADD COLUMN "pronunciation" text;

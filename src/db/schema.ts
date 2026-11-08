@@ -473,6 +473,7 @@ export const studyCards = pgTable(
     meaning: text("meaning").notNull(),
     example: text("example").notNull(),
     note: text("note"),
+    pronunciation: text("pronunciation"),
     kind: studyCardKind("kind").notNull(),
     topics: text("topics").array().notNull().default([]),
     stage: studyCardStage("stage").notNull().default("NEW"),
