@@ -66,7 +66,7 @@ async function main() {
     // ---- GET /cards/[id] và phân quyền ----
     const id1 = c1.j.id as string;
     const g1 = await H("GET", `/cards/${id1}`);
-    check("GET /cards/[id]: đủ trường theo hợp đồng", g1.s === 200 && ["id", "subjectId", "sourceLogId", "phrase", "meaning", "example", "note", "kind", "topics", "stage", "dueAt", "reviewCount", "notYetCount", "lastReviewedAt", "suspended", "createdAt"].every((k) => k in g1.j), g1.j && Object.keys(g1.j));
+    check("GET /cards/[id]: đủ trường theo hợp đồng", g1.s === 200 && ["id", "subjectId", "sourceLogId", "phrase", "meaning", "example", "note", "pronunciation", "kind", "topics", "stage", "dueAt", "reviewCount", "notYetCount", "lastReviewedAt", "suspended", "createdAt"].every((k) => k in g1.j), g1.j && Object.keys(g1.j));
     check("404 card_not_found: id lạ, không phải uuid, thẻ của user khác (GET/PATCH/DELETE)", (await H("GET", `/cards/${randomUUID()}`)).j?.error === "card_not_found" && (await H("GET", "/cards/abc")).s === 404 && (await H("GET", `/cards/${id1}`, undefined, B)).s === 404 && (await H("PATCH", `/cards/${id1}`, { suspended: true }, B)).s === 404 && (await H("DELETE", `/cards/${id1}`, undefined, B)).s === 404);
     check("thẻ của A còn nguyên sau các lệnh của B", (await cardCount(sub1)) === 2 && (await H("GET", `/cards/${id1}`)).j.suspended === false);
 
@@ -105,6 +105,19 @@ async function main() {
     check("parse: cards (mới), errors, duplicates, existing có index", pr.s === 200 && pr.j.cards.map((c: any) => c.index).join() === "1,4" && pr.j.errors.length === 1 && pr.j.errors[0].index === 3 && pr.j.duplicates.length === 1 && pr.j.duplicates[0].index === 2 && pr.j.duplicates[0].firstIndex === 1 && pr.j.existing.length === 1 && pr.j.existing[0].index === 0 && pr.j.existing[0].phrase === "Break the ice", pr);
     check("parse không lưu gì", (await cardCount(sub1)) === before);
     check("parse: JSON hỏng → errors invalid_json; môn lạ → 404; thiếu text → 400", (await H("POST", "/cards/parse", { subjectId: sub1, text: "[{" })).j?.errors?.[0]?.reason === "invalid_json" && (await H("POST", "/cards/parse", { subjectId: sub1, text: "[]" }, B)).j?.error === "subject_not_found" && (await H("POST", "/cards/parse", { subjectId: sub1 })).s === 400);
+
+    // ---- pronunciation ----
+    const pr1 = await H("POST", "/cards", { subjectId: sub1, phrase: "pron with value", ...base, pronunciation: "  /prɒn/ " });
+    const pr2 = await H("POST", "/cards", { subjectId: sub1, phrase: "pron without value", ...base });
+    check("pronunciation: có giá trị (cắt khoảng trắng) / thiếu → null", pr1.s === 201 && pr1.j.pronunciation === "/prɒn/" && pr2.s === 201 && pr2.j.pronunciation === null, [pr1.j, pr2.j]);
+    const pr3 = await H("PATCH", `/cards/${pr1.j.id}`, { pronunciation: null });
+    check("pronunciation: PATCH về null; GET/list trả đúng", pr3.s === 200 && pr3.j.pronunciation === null && (await H("GET", `/cards/${pr1.j.id}`)).j.pronunciation === null, pr3);
+    const pr4 = await H("POST", "/cards", { subjectId: sub1, phrase: "pron too long", ...base, pronunciation: "a".repeat(101) });
+    const pr5 = await H("PATCH", `/cards/${pr2.j.id}`, { pronunciation: "a".repeat(101) });
+    check("pronunciation: quá 100 → 400 pronunciation_too_long (POST + PATCH)", pr4.s === 400 && pr4.j.error === "pronunciation_too_long" && pr5.s === 400 && pr5.j.error === "pronunciation_too_long", [pr4.j, pr5.j]);
+    const pr6 = await H("POST", "/cards/import", { subjectId: sub1, cards: [{ phrase: "pron import long", ...base, pronunciation: "a".repeat(101) }, { phrase: "pron import ok", ...base, pronunciation: "/ɪmˈpɔːt/" }] });
+    const prRows = await db.select().from(studyCards).where(and(eq(studyCards.subjectId, sub1), eq(studyCards.userId, a.id)));
+    check("pronunciation: import bỏ giá trị quá dài, giữ thẻ", pr6.s === 201 && pr6.j.created === 2 && prRows.find((r) => r.phrase === "pron import long")?.pronunciation === null && prRows.find((r) => r.phrase === "pron import ok")?.pronunciation === "/ɪmˈpɔːt/", pr6);
 
     // ---- import ----
     const imp1 = await H("POST", "/cards/import", { subjectId: sub1, logId: log1, cards: [...mkCards(5, "imp"), { phrase: "IMP  phrase   number 0", ...base }, { phrase: "break the ice", ...base, kind: "IDIOM" }] });
