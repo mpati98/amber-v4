@@ -144,7 +144,7 @@ async function main() {
 
     // ---- logActivity: mỗi lần import thành công đúng một dòng ----
     const acts = await db.select().from(activityLogs).where(and(eq(activityLogs.userId, a.id), eq(activityLogs.action, "study_card.imported")));
-    const okImports = 1 + 1 + 4; // imp1, imp100, 4 lần song song (lần lỗi/404 không ghi)
+    const okImports = 1 + 1 + 4 + 1; // imp1, imp100, 4 lần song song, 1 lần import phiên âm (lần lỗi/404 không ghi)
     check("logActivity TRA_DINH: một dòng cho mỗi import thành công, không ghi khi lỗi", acts.length === okImports && acts.every((r) => r.source === "TRA_DINH"), acts.length);
 
     // ---- GET /cards: lọc, đếm, phân trang ----
