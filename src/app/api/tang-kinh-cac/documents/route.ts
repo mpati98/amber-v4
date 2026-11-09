@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { and, desc, eq, like, or } from "drizzle-orm";
 import { db } from "@/db";
 import { documents, documentType } from "@/db/schema";
-import { parseTags, stringifyTags } from "@/lib/tags";
+import { documentJson } from "@/lib/study-course-note";
+import { stringifyTags } from "@/lib/tags";
 import { withAuth } from "@/lib/withAuth";
 
 const CONTENT_TYPES = ["TEXT", "CHECKLIST", "MINDMAP"];
@@ -25,11 +26,11 @@ export const GET = withAuth(async (req) => {
 
   const items = await db.query.documents.findMany({
     where: conditions.length > 0 ? and(...conditions) : undefined,
-    with: { topic: true },
+    with: { topic: true, studyCourse: { columns: { title: true } } },
     orderBy: desc(documents.updatedAt),
   });
 
-  return NextResponse.json(items.map((item) => ({ ...item, tags: parseTags(item.tags) })));
+  return NextResponse.json(items.map(documentJson));
 });
 
 export const POST = withAuth(async (req) => {
@@ -46,6 +47,7 @@ export const POST = withAuth(async (req) => {
     return NextResponse.json({ error: `attachmentUrl is required for type ${type}` }, { status: 400 });
   }
 
+  // Không nhận studyCourseId từ client: chỉ route courses/[id]/note-document được gắn tài liệu với khóa.
   // ID mới dùng UUID, dữ liệu cũ có thể còn dạng cuid từ Prisma — không ảnh hưởng vì cột là text
   const [created] = await db
     .insert(documents)
@@ -66,8 +68,8 @@ export const POST = withAuth(async (req) => {
 
   const item = await db.query.documents.findFirst({
     where: eq(documents.id, created.id),
-    with: { topic: true },
+    with: { topic: true, studyCourse: { columns: { title: true } } },
   });
 
-  return NextResponse.json({ ...item!, tags: parseTags(item!.tags) });
+  return NextResponse.json(documentJson(item!));
 });

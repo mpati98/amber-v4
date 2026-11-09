@@ -1,0 +1,3 @@
+ALTER TABLE "documents" ADD COLUMN "study_course_id" uuid;--> statement-breakpoint
+ALTER TABLE "documents" ADD CONSTRAINT "documents_study_course_id_study_courses_id_fk" FOREIGN KEY ("study_course_id") REFERENCES "public"."study_courses"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "documents_study_course_id_key" ON "documents" USING btree ("study_course_id") WHERE "documents"."study_course_id" is not null;

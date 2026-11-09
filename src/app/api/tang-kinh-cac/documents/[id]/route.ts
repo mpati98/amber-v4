@@ -2,12 +2,24 @@ import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { documents } from "@/db/schema";
-import { parseTags, stringifyTags } from "@/lib/tags";
+import { documentJson } from "@/lib/study-course-note";
+import { stringifyTags } from "@/lib/tags";
 import { withAuth } from "@/lib/withAuth";
+
+export const GET = withAuth(async (_req, _userId, { params }: { params: Promise<{ id: string }> }) => {
+  const { id } = await params;
+  const item = await db.query.documents.findFirst({
+    where: eq(documents.id, id),
+    with: { topic: true, studyCourse: { columns: { title: true } } },
+  });
+  if (!item) return NextResponse.json({ error: "document_not_found" }, { status: 404 });
+  return NextResponse.json(documentJson(item));
+});
 
 export const PATCH = withAuth(async (req, _userId, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const body = await req.json();
+  // studyCourseId (nếu client gửi) bị bỏ qua: không đổi gắn khóa của tài liệu qua route này.
   const { title, content, attachmentUrl, tags, pinned, sourceUrl, topicId } = body;
 
   const [updated] = await db
@@ -34,10 +46,10 @@ export const PATCH = withAuth(async (req, _userId, { params }: { params: Promise
 
   const item = await db.query.documents.findFirst({
     where: eq(documents.id, id),
-    with: { topic: true },
+    with: { topic: true, studyCourse: { columns: { title: true } } },
   });
 
-  return NextResponse.json({ ...item!, tags: parseTags(item!.tags) });
+  return NextResponse.json(documentJson(item!));
 });
 
 export const DELETE = withAuth(async (_req, _userId, { params }: { params: Promise<{ id: string }> }) => {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { documents } from "@/db/schema";
-import { parseTags } from "@/lib/tags";
+import { documentJson } from "@/lib/study-course-note";
 import { withAuth } from "@/lib/withAuth";
 
 export const GET = withAuth(async () => {
@@ -15,9 +15,9 @@ export const GET = withAuth(async () => {
   const pool = await db.query.documents.findMany({
     limit: poolSize,
     orderBy: (d, { asc }) => asc(d.updatedAt),
-    with: { topic: true },
+    with: { topic: true, studyCourse: { columns: { title: true } } },
   });
 
   const pick = pool[Math.floor(Math.random() * pool.length)];
-  return NextResponse.json({ ...pick, tags: parseTags(pick.tags) });
+  return NextResponse.json(documentJson(pick));
 });

@@ -113,6 +113,13 @@
       "when": 1794237333640,
       "tag": "0015_soft_delete_course_pw_lock",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794238901709,
+      "tag": "0016_document_study_course_note",
+      "breakpoints": true
     }
   ]
 }

@@ -230,9 +230,10 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
 
 ## Xoá mềm khóa học (Trà Đình, migration `0015_soft_delete_course_pw_lock`)
 
-**0014 và 0015 mới áp lên Neon DEV, CHƯA áp lên production.** 0015 chỉ thêm 3 cột (`study_courses.deleted_at`, `users.pw_failed_count` not null mặc định 0,
-`users.pw_locked_until`), nên bản code cũ vẫn chạy. Thứ tự khi đẩy cả hai commit (gỡ Học tập cũ + xoá mềm): áp **0015 TRƯỚC** khi deploy (code mới đọc các cột đó);
-áp **0014 SAU** khi code đã deploy (bản cũ còn truy vấn `learn_*` ở route notifications).
+**0014, 0015 và 0016 mới áp lên Neon DEV, CHƯA áp lên production.** 0015 chỉ thêm 3 cột (`study_courses.deleted_at`, `users.pw_failed_count` not null mặc định 0,
+`users.pw_locked_until`); 0016 chỉ thêm `documents.study_course_id` + FK + chỉ mục duy nhất một phần (xem "Ghi chú theo khóa học"). Cả hai đều chỉ thêm nên bản code cũ vẫn chạy.
+Thứ tự khi đẩy các commit (gỡ Học tập cũ + xoá mềm + ghi chú): áp **0015 và 0016 TRƯỚC** khi deploy (code mới đọc các cột đó);
+áp **0014 SAU** khi code mới đã chạy (bản cũ còn truy vấn `learn_*` ở route notifications).
 
 - `DELETE /courses/[id]` nhận `{ password }`: đặt `deleted_at`, bỏ `queue_position` và đánh số lại hàng chờ (một transaction); khóa ACTIVE bị xoá không đẩy khóa chờ lên. Buổi học/thẻ/tài liệu không đụng.
 - `GET /courses?deleted=1` = Thùng rác (kèm `deletedAt`, `daysLeft` = 30 trừ số ngày nguyên đã qua, tối thiểu 0). `POST /courses/[id]/restore` (không cần mật khẩu):
@@ -243,6 +244,18 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
   `PATCH /logs/[id]` sửa phút/ghi chú được nhưng sửa phần → 409 `course_deleted`; `syncCourseCompletion` bỏ qua khóa đã xoá.
 - `lib/password-guard.ts` `verifyPasswordWithLockout(userId, password)` (+ `passwordFailureResponse`): bcrypt với `users.password_hash`; sai → 403 `wrong_password`, đang khoá → 429 `password_locked` + `retryAfterSeconds`
   (không so mật khẩu); 5 lần sai → khoá 15 phút, bộ đếm về 0 (lần sai thứ 5 trả luôn 429); đúng → đặt lại bộ đếm. Theo người dùng, một UPDATE nguyên tử. Logic thuần: `lib/password-lockout.ts`, `lib/study-trash.ts` (có test).
+
+## Ghi chú theo khóa học (Trà Đình ↔ Tàng Kinh Các, migration `0016_document_study_course_note`)
+
+Mỗi khóa học tối đa MỘT tài liệu ghi chú trong `documents`. Tóm tắt/thẻ do người dùng làm bằng Claude web rồi dán vào — backend KHÔNG gọi AI.
+
+- Migration 0016: `documents.study_course_id` uuid null, FK `study_courses(id)` ON DELETE SET NULL, chỉ mục duy nhất một phần `documents_study_course_id_key` (`WHERE study_course_id IS NOT NULL`). Chưa áp production.
+- `POST /api/tra-dinh/hoc-tap/courses/[id]/note-document` (`withAuth`, `findOwnedCourse`: khóa đã xoá mềm / của người khác → 404 `course_not_found`): đã có tài liệu → 200; chưa có → tạo TEXT
+  "<tên khóa> — Ghi chú", nội dung `# <tên khóa>\n\n`, tags `["khoa-hoc","ghi-chu"]` → 201 + `logActivity` `study_course.note_created` (mở lại thì không ghi). Đồng thời: `INSERT ... ON CONFLICT DO NOTHING` rồi đọc lại; request thua trả tài liệu đã có (200).
+- Tài liệu trả về (route này, GET danh sách, GET `/documents/[id]` (mới), POST/PATCH/random): thêm `studyCourseId` (null nếu không gắn) và `studyCourseTitle` (leftJoin `study_courses`, KHÔNG lọc `deleted_at` nên khóa trong Thùng rác vẫn có nhãn); `lib/study-course-note.ts` (`documentJson`, tên + nội dung khởi đầu).
+- POST/PATCH `/documents` thường BỎ QUA `studyCourseId` do client gửi; chỉ `note-document` đặt nó. Xoá tài liệu ghi chú bằng DELETE thường được, bấm "Ghi chú khóa" lần nữa tạo tài liệu mới.
+  Xoá khóa (mềm: không đụng; hẳn: SET NULL) không xoá tài liệu.
+- `documents` không có `user_id` (Tàng Kinh Các vốn không lọc theo user): mọi tài liệu, kể cả ghi chú khóa, nhìn thấy được bởi mọi tài khoản đã đăng nhập — chỉ `note-document` kiểm quyền khóa. Test: `scripts/study-course-note-e2e.ts`.
 
 ## Việc còn treo (chưa quyết)
 

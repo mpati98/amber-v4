@@ -631,9 +631,14 @@ export const documents = pgTable("documents", {
   pinned: boolean("pinned").notNull().default(false),
   sourceUrl: text("sourceUrl"),
   topicId: text("topicId").references(() => topics.id, { onDelete: "set null", onUpdate: "cascade" }),
+  // Ghi chú theo khóa học (Trà Đình): mỗi khóa tối đa một tài liệu. Chỉ route courses/[id]/note-document được đặt cột này.
+  // Xoá hẳn khóa → SET NULL (tài liệu còn nguyên).
+  studyCourseId: uuid("study_course_id").references(() => studyCourses.id, { onDelete: "set null" }),
   createdAt: timestamp("createdAt", { mode: "string" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { mode: "string" }).notNull(),
-});
+}, (table) => [
+  uniqueIndex("documents_study_course_id_key").on(table.studyCourseId).where(sql`${table.studyCourseId} is not null`),
+]);
 
 // Bảng đổi tên từ "Publication" (Prisma) sang "publications" — id giữ kiểu
 // text (cuid cũ, không default ở DB). Timestamp KHÔNG có timezone, giống
@@ -864,6 +869,7 @@ export const topicsRelations = relations(topics, ({ many }) => ({
 
 export const documentsRelations = relations(documents, ({ one }) => ({
   topic: one(topics, { fields: [documents.topicId], references: [topics.id] }),
+  studyCourse: one(studyCourses, { fields: [documents.studyCourseId], references: [studyCourses.id] }),
 }));
 
 export const publicationsRelations = relations(publications, ({ many }) => ({
