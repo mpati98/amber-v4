@@ -64,9 +64,9 @@ export const projects = pgTable("projects", {
     .references(() => users.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
   color: varchar("color", { length: 32 }),
-  // "STANDARD" (dự án task thông thường) | "FINANCE" (tháng) | "LEARN" (khóa học) | ... mở rộng tự do
+  // "STANDARD" (dự án task thông thường) | "FINANCE" (tháng) | "PRACTICE" (buổi luyện Trà Đình) | ... mở rộng tự do
   type: varchar("type", { length: 32 }).notNull().default("STANDARD"),
-  // Chu kỳ của dự án — dùng cho project có vòng đời rõ ràng (Finance: 1 tháng, Learn: ngày bắt đầu/kết thúc khóa)
+  // Chu kỳ của dự án — dùng cho project có vòng đời rõ ràng (Finance: 1 tháng)
   startDate: date("start_date"),
   endDate: date("end_date"),
   // Mục tiêu của dự án (văn bản tự do)
@@ -266,31 +266,6 @@ export const financeBalanceSnapshots = pgTable("finance_balance_snapshots", {
     .references(() => projects.id, { onDelete: "cascade" }),
   totalBalance: numeric("total_balance", { precision: 14, scale: 2 }).notNull(),
   recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-// ===== Học tập (dự án đặc biệt, type = "LEARN") — mỗi khóa học = 1 project =====
-
-export const learnCourseDetails = pgTable("learn_course_details", {
-  projectId: uuid("project_id")
-    .primaryKey()
-    .references(() => projects.id, { onDelete: "cascade" }),
-  source: varchar("source", { length: 255 }), // "Udemy", "Coursera", "edX"...
-  field: varchar("field", { length: 255 }), // lĩnh vực
-  outcome: text("outcome"), // kết quả đạt được (chứng chỉ, điểm số, tổng kết)
-  // PLANNED (dự định học) | IN_PROGRESS (đang học) | COMPLETED (đã xong)
-  status: varchar("status", { length: 32 }).notNull().default("PLANNED"),
-});
-
-export const learnLessons = pgTable("learn_lessons", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  projectId: uuid("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
-  title: varchar("title", { length: 255 }).notNull(),
-  studiedAt: date("studied_at"),
-  durationMinutes: integer("duration_minutes"),
-  note: text("note"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ===== Trà Đình — luyện tập tiếng Anh với AI (dự án đặc biệt, type = "PRACTICE") =====
@@ -801,8 +776,6 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
     fields: [projects.id],
     references: [financeBalanceSnapshots.projectId],
   }),
-  learnLessons: many(learnLessons),
-  learnDetails: one(learnCourseDetails, { fields: [projects.id], references: [learnCourseDetails.projectId] }),
   practiceMessages: many(practiceMessages),
   practiceDetails: one(practiceSessionDetails, { fields: [projects.id], references: [practiceSessionDetails.projectId] }),
 }));
@@ -854,15 +827,6 @@ export const financeBudgetsRelations = relations(financeBudgets, ({ one }) => ({
 
 export const financeBalanceSnapshotsRelations = relations(financeBalanceSnapshots, ({ one }) => ({
   project: one(projects, { fields: [financeBalanceSnapshots.projectId], references: [projects.id] }),
-}));
-
-export const learnCourseDetailsRelations = relations(learnCourseDetails, ({ one, many }) => ({
-  project: one(projects, { fields: [learnCourseDetails.projectId], references: [projects.id] }),
-  lessons: many(learnLessons),
-}));
-
-export const learnLessonsRelations = relations(learnLessons, ({ one }) => ({
-  project: one(projects, { fields: [learnLessons.projectId], references: [projects.id] }),
 }));
 
 export const practiceSessionDetailsRelations = relations(practiceSessionDetails, ({ one }) => ({

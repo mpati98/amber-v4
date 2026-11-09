@@ -2,22 +2,18 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/withAuth";
 import { db } from "@/db";
 import { projects, tasks, financeTransactions, financeBudgets } from "@/db/schema";
-import { eq, and, ne, isNotNull, isNull, sql } from "drizzle-orm";
+import { eq, and, ne, isNotNull, sql } from "drizzle-orm";
 import { formatVND } from "@/lib/currency";
 import { vnMonthBounds, vnToday } from "@/lib/vn-time";
 import { isDeadlineAlert } from "@/lib/deadline-alert";
 
 type Alert = {
   id: string;
-  kind: "TASK_DUE" | "BUDGET_EXCEEDED" | "FINANCE_MONTH_MISSING" | "LEARN_INACTIVE";
+  kind: "TASK_DUE" | "BUDGET_EXCEEDED" | "FINANCE_MONTH_MISSING";
   title: string;
   detail?: string;
   href: string;
 };
-
-function daysSince(isoDate: string, now: Date): number {
-  return (now.getTime() - new Date(isoDate).getTime()) / (24 * 60 * 60 * 1000);
-}
 
 export const GET = withAuth(async (_req, userId) => {
   const now = new Date();
@@ -87,28 +83,6 @@ export const GET = withAuth(async (_req, userId) => {
           });
         }
       }
-    }
-  }
-
-  // 4) Khóa học LEARN đang học nhưng lâu chưa luyện (bài học gần nhất > 3 ngày)
-  const learnCourses = await db.query.projects.findMany({
-    where: and(eq(projects.userId, userId), eq(projects.type, "LEARN"), isNull(projects.archivedAt)),
-    with: { learnDetails: true, learnLessons: true },
-  });
-  for (const c of learnCourses) {
-    if (c.learnDetails?.status !== "IN_PROGRESS") continue;
-    const latestStudiedAt = c.learnLessons.reduce<string | null>((latest, l) => {
-      if (!l.studiedAt) return latest;
-      return !latest || l.studiedAt > latest ? l.studiedAt : latest;
-    }, null);
-    const idleDays = latestStudiedAt ? daysSince(latestStudiedAt, now) : Infinity;
-    if (idleDays > 3) {
-      alerts.push({
-        id: `learn:${c.id}`,
-        kind: "LEARN_INACTIVE",
-        title: `Lâu rồi chưa học "${c.name}"`,
-        href: `/hoc-tap/${c.id}`,
-      });
     }
   }
 

@@ -14,12 +14,11 @@ const SELF_AUTH_API_PREFIXES = [
   "/api/mobile",
   "/api/kieu-lau",
   "/api/tang-kinh-cac",
-  // Nghị Sự Đường (dự án, tài chính, học tập) — API không có prefix chung.
+  // Nghị Sự Đường (dự án, tài chính) — API không có prefix chung.
   "/api/projects",
   "/api/tasks",
   "/api/du-an",
   "/api/finance",
-  "/api/learn",
   "/api/tra-dinh",
   // Nhật ký amber-brain (dataset fine-tune): đọc/đánh giá từ Flutter, ingest từ brain.
   "/api/brain-logs",

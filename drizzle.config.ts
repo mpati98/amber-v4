@@ -22,8 +22,6 @@ export default defineConfig({
     "finance_budgets",
     "finance_categories",
     "finance_transactions",
-    "learn_course_details",
-    "learn_lessons",
     "practice_messages",
     "practice_session_details",
     "projects",

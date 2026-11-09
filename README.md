@@ -55,7 +55,6 @@ header `Authorization: Bearer <accessToken>`.
 | Đăng nhập app | `/api/mobile/auth/login`, `/refresh`, `/logout` |
 | Dự án & công việc | `/api/projects`, `/api/tasks`, `/api/du-an` |
 | Tài chính | `/api/finance` |
-| Học tập | `/api/learn` |
 | Sách & tài liệu (Tàng Kinh Các) | `/api/tang-kinh-cac` |
 | Thông báo & tin tức (Kiều Lâu) | `/api/kieu-lau` |
 | Luyện tiếng Anh (Trà Đình) | `/api/tra-dinh` |

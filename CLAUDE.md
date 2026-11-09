@@ -95,8 +95,7 @@ vercel.json             { "regions": ["sin1"] } — gần Neon Singapore
 ### Quyền sở hữu dữ liệu
 
 - Mọi truy vấn lọc theo `userId`. Bảng con không có `user_id` kiểm tra qua bảng
-  cha: `lib/project-access.ts` (`userOwnsProject`), `lib/learn-access.ts`
-  (`findOwnedCourse`, `findOwnedLesson`). Không có quyền → trả 404 (không lộ tồn tại).
+  cha: `lib/project-access.ts` (`userOwnsProject`). Không có quyền → trả 404 (không lộ tồn tại).
 - **Ngoại lệ: Tàng Kinh Các** (`documents`, `publications`, `highlights`,
   `topics`, `reading_goals`) không có cột `user_id` — chỉ cần đăng nhập, không
   lọc theo user (thiết kế 1 người dùng).
@@ -105,7 +104,7 @@ vercel.json             { "regions": ["sin1"] } — gần Neon Singapore
 
 | Tòa | Prefix | Ghi chú |
 |---|---|---|
-| Nghị Sự Đường | `/api/projects`, `/api/tasks`, `/api/du-an`, `/api/finance`, `/api/learn` | không có prefix chung; việc hằng ngày + buổi tập: `/api/du-an/routines` (mục riêng bên dưới). `projects.type`: STANDARD (dự án với KR, việc hằng ngày, bảng Kanban) / FINANCE (1 project/tháng) / LEARN (khóa học) / PRACTICE (buổi Trà Đình) |
+| Nghị Sự Đường | `/api/projects`, `/api/tasks`, `/api/du-an`, `/api/finance` | không có prefix chung; việc hằng ngày + buổi tập: `/api/du-an/routines` (mục riêng bên dưới). `projects.type`: STANDARD (dự án với KR, việc hằng ngày, bảng Kanban) / FINANCE (1 project/tháng) / PRACTICE (buổi Trà Đình). Học tập cũ (`/api/learn`, bảng `learn_*`, `projects.type = 'LEARN'`) đã gỡ: migration `0014_go_hoc_tap_cu` (có câu kiểm dừng nếu còn dữ liệu) **chưa áp lên production**; áp SAU khi đã deploy bản code không còn đọc `learn_*` (route notifications cũ truy vấn bảng này) |
 | Tàng Kinh Các | `/api/tang-kinh-cac` | sách, tài liệu, highlight, mục tiêu đọc, upload Blob private (đọc lại qua `/blob/[...path]`) |
 | Nhạc | `/api/music` | track MP3 riêng theo user, client upload Blob qua token giới hạn |
 | Kiều Lâu | `/api/kieu-lau` | cảnh báo tính lúc gọi (không lưu DB), nhật ký `activity_logs`, RSS |

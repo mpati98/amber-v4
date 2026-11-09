@@ -8,7 +8,7 @@ import { dateString, endBeforeStart, PROJECT_STATUSES } from "@/lib/project-inpu
 const createProjectSchema = z.object({
   name: z.string().min(1),
   color: z.string().optional(),
-  // Không giới hạn cứng vào 1 danh sách — cho phép thêm loại project đặc biệt mới (FINANCE, LEARN,...)
+  // Không giới hạn cứng vào 1 danh sách — cho phép thêm loại project đặc biệt mới (FINANCE, PRACTICE,...)
   // sau này mà không cần sửa lại API.
   type: z.string().min(1).optional(),
   goal: z.string().optional(),
