@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { studyCourses, studyDayReasons, studyLogs, studySubjects } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
 import { badRequest } from "@/lib/study-input";
-import { courseViews, findOwnedSubject, isUuid } from "@/lib/study-courses";
+import { courseViews, findOwnedSubject, isUuid, notDeleted } from "@/lib/study-courses";
 import { buildStats, progressPct, statsBounds, type StatsRange } from "@/lib/study-stats";
 import { vnToday } from "@/lib/vn-time";
 
@@ -45,7 +45,7 @@ export const GET = withAuth(async (req, userId) => {
         .where(and(inArray(studyDayReasons.subjectId, ids), between(studyDayReasons.reasonDate, from, to)))
     : [];
 
-  const courseRows = ids.length ? await db.select().from(studyCourses).where(and(eq(studyCourses.userId, userId), inArray(studyCourses.subjectId, ids))) : [];
+  const courseRows = ids.length ? await db.select().from(studyCourses).where(and(eq(studyCourses.userId, userId), notDeleted, inArray(studyCourses.subjectId, ids))) : [];
   const views = await courseViews(db, userId, courseRows);
 
   return NextResponse.json(

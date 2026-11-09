@@ -150,3 +150,6 @@ export const importCardsSchema = z.object({
   logId: z.string().optional(),
   cards: z.array(z.unknown()).min(1).max(MAX_CARD_IMPORT),
 });
+
+/** Body của xoá / xoá hẳn khóa học: phải nhập lại mật khẩu. */
+export const passwordBodySchema = z.object({ password: z.string().min(1).max(200) });

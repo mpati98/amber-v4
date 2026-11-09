@@ -4,7 +4,8 @@ import { db } from "@/db";
 import { studyCourses, studyLogs } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
 import { logActivity } from "@/lib/activity-log";
-import { badRequest, invalidBody, patchCourseSchema, readJson } from "@/lib/study-input";
+import { badRequest, invalidBody, passwordBodySchema, patchCourseSchema, readJson } from "@/lib/study-input";
+import { passwordFailureResponse, verifyPasswordWithLockout } from "@/lib/password-guard";
 import {
   afterStatusChange,
   courseSections,
@@ -13,6 +14,7 @@ import {
   guardStudy,
   queuedCourses,
   renumberQueue,
+  softDeleteCourse,
   statusColumns,
 } from "@/lib/study-courses";
 import { logViews } from "@/lib/study-logs";
@@ -82,12 +84,21 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
   });
 });
 
-// Xoá khóa: phần xoá theo (cascade); log giữ lại với course_id = null.
-export const DELETE = withAuth(async (_req, userId, { params }: RouteParams) => {
+// Xoá MỀM: đặt deleted_at (Thùng rác 30 ngày, khôi phục / xoá hẳn xem restore, purge). Bắt buộc nhập mật khẩu.
+// Buổi học, thẻ và tài liệu không bị đụng. Khóa ACTIVE bị xoá không tự đẩy khóa chờ lên.
+export const DELETE = withAuth(async (req, userId, { params }: RouteParams) => {
   const { id } = await params;
   const course = await findOwnedCourse(db, id, userId);
   if (!course) return notFound();
-  await db.delete(studyCourses).where(and(eq(studyCourses.id, course.id), eq(studyCourses.userId, userId)));
-  logActivity({ userId, source: "TRA_DINH", action: "study_course.deleted", title: `Xoá khóa học: ${course.title}`, metadata: { courseId: course.id, subjectId: course.subjectId } });
+
+  const body = await readJson(req);
+  if (body === undefined) return badRequest("invalid_json");
+  const parsed = passwordBodySchema.safeParse(body);
+  if (!parsed.success) return invalidBody(parsed.error);
+  const failure = passwordFailureResponse(await verifyPasswordWithLockout(userId, parsed.data.password));
+  if (failure) return failure;
+
+  await db.transaction((tx) => softDeleteCourse(tx, course, new Date()));
+  logActivity({ userId, source: "TRA_DINH", action: "study_course.deleted", title: `Xoá khóa học (vào Thùng rác): ${course.title}`, metadata: { courseId: course.id, subjectId: course.subjectId } });
   return NextResponse.json({ ok: true });
 });

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { studyCourseSections, studyCourses } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
 import { logActivity } from "@/lib/activity-log";
 import { badRequest, createCourseSchema, invalidBody, MAX_SECTIONS, readJson } from "@/lib/study-input";
+import { trashDaysLeft } from "@/lib/study-trash";
 import { parseSections } from "@/lib/study-sections-parse";
 import {
   afterStatusChange,
@@ -15,6 +16,8 @@ import {
   findOwnedSubject,
   guardStudy,
   isUuid,
+  notDeleted,
+  purgeExpiredCourses,
   snapshotBaselinesIfStarted,
   statusColumns,
   type CourseRow,
@@ -41,18 +44,32 @@ export const GET = withAuth(async (req, userId) => {
   const statuses = z.array(statusSchema).safeParse(sp.getAll("status"));
   if (!statuses.success) return badRequest("invalid_status");
 
+  const deletedParam = sp.get("deleted");
+  if (deletedParam !== null && deletedParam !== "1") return badRequest("invalid_deleted");
+  const trash = deletedParam === "1";
+
+  // Dọn lười thay cho cron: xoá hẳn khóa của người dùng này đã quá 30 ngày trong Thùng rác.
+  await purgeExpiredCourses(userId);
+
   const rows = await db
     .select()
     .from(studyCourses)
     .where(
       and(
         eq(studyCourses.userId, userId),
+        trash ? isNotNull(studyCourses.deletedAt) : notDeleted,
         subjectId ? eq(studyCourses.subjectId, subjectId) : undefined,
         statuses.data.length ? inArray(studyCourses.status, statuses.data) : undefined
       )
     )
     .orderBy(desc(studyCourses.createdAt));
-  return NextResponse.json(await courseViews(db, userId, sortCourses(rows)));
+  if (!trash) return NextResponse.json(await courseViews(db, userId, sortCourses(rows)));
+
+  // Thùng rác: xoá gần nhất trước, kèm deletedAt + daysLeft.
+  const trashed = [...rows].sort((a, b) => time(b.deletedAt) - time(a.deletedAt));
+  const views = await courseViews(db, userId, trashed);
+  const now = new Date();
+  return NextResponse.json(views.map((v, i) => ({ ...v, deletedAt: trashed[i].deletedAt, daysLeft: trashDaysLeft(trashed[i].deletedAt!, now) })));
 });
 
 export const POST = withAuth(async (req, userId) => {

@@ -90,7 +90,7 @@ vercel.json             { "regions": ["sin1"] } — gần Neon Singapore
   Path ngoài `/api` để Next tự trả 404.
 - NextAuth (cookie) chỉ còn là di sản web; `lib/auth.ts` vẫn có
   `pages.signIn: "/login"` trỏ vào trang không còn tồn tại — vô hại.
-- Chưa có rate limit cho đăng nhập.
+- Chưa có rate limit cho đăng nhập (route login chưa dùng `lib/password-guard.ts`). Thao tác nguy hiểm đã có: xem "Xoá mềm khóa học".
 
 ### Quyền sở hữu dữ liệu
 
@@ -104,7 +104,7 @@ vercel.json             { "regions": ["sin1"] } — gần Neon Singapore
 
 | Tòa | Prefix | Ghi chú |
 |---|---|---|
-| Nghị Sự Đường | `/api/projects`, `/api/tasks`, `/api/du-an`, `/api/finance` | không có prefix chung; việc hằng ngày + buổi tập: `/api/du-an/routines` (mục riêng bên dưới). `projects.type`: STANDARD (dự án với KR, việc hằng ngày, bảng Kanban) / FINANCE (1 project/tháng) / PRACTICE (buổi Trà Đình). Học tập cũ (`/api/learn`, bảng `learn_*`, `projects.type = 'LEARN'`) đã gỡ: migration `0014_go_hoc_tap_cu` (có câu kiểm dừng nếu còn dữ liệu) **chưa áp lên production**; áp SAU khi đã deploy bản code không còn đọc `learn_*` (route notifications cũ truy vấn bảng này) |
+| Nghị Sự Đường | `/api/projects`, `/api/tasks`, `/api/du-an`, `/api/finance` | không có prefix chung; việc hằng ngày + buổi tập: `/api/du-an/routines` (mục riêng bên dưới). `projects.type`: STANDARD (dự án với KR, việc hằng ngày, bảng Kanban) / FINANCE (1 project/tháng) / PRACTICE (buổi Trà Đình). Học tập cũ (`/api/learn`, bảng `learn_*`, `projects.type = 'LEARN'`) đã gỡ: migration `0014_go_hoc_tap_cu` (có câu kiểm dừng nếu còn dữ liệu) **chưa áp lên production** (cả 0015, xem "Xoá mềm khóa học"); áp SAU khi đã deploy bản code không còn đọc `learn_*` (route notifications cũ truy vấn bảng này) |
 | Tàng Kinh Các | `/api/tang-kinh-cac` | sách, tài liệu, highlight, mục tiêu đọc, upload Blob private (đọc lại qua `/blob/[...path]`) |
 | Nhạc | `/api/music` | track MP3 riêng theo user, client upload Blob qua token giới hạn |
 | Kiều Lâu | `/api/kieu-lau` | cảnh báo tính lúc gọi (không lưu DB), nhật ký `activity_logs`, RSS |
@@ -227,6 +227,22 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
   liên tục lâu hơn, nó sẽ bị cắt. Cần kiểm thử trên iPhone với MP3 dài và xử lý giới hạn này trước khi coi phát liên tục >5 phút là bảo đảm.
 - **Máy này không có thông tin đăng nhập GitHub**: người dùng tự `git push`, đừng cố push hay cấu hình credential.
 - **Không chạy test hợp đồng / test tích hợp với production** (chúng ghi dữ liệu thật); chỉ chạy trên Neon dev.
+
+## Xoá mềm khóa học (Trà Đình, migration `0015_soft_delete_course_pw_lock`)
+
+**0014 và 0015 mới áp lên Neon DEV, CHƯA áp lên production.** 0015 chỉ thêm 3 cột (`study_courses.deleted_at`, `users.pw_failed_count` not null mặc định 0,
+`users.pw_locked_until`), nên bản code cũ vẫn chạy. Thứ tự khi đẩy cả hai commit (gỡ Học tập cũ + xoá mềm): áp **0015 TRƯỚC** khi deploy (code mới đọc các cột đó);
+áp **0014 SAU** khi code đã deploy (bản cũ còn truy vấn `learn_*` ở route notifications).
+
+- `DELETE /courses/[id]` nhận `{ password }`: đặt `deleted_at`, bỏ `queue_position` và đánh số lại hàng chờ (một transaction); khóa ACTIVE bị xoá không đẩy khóa chờ lên. Buổi học/thẻ/tài liệu không đụng.
+- `GET /courses?deleted=1` = Thùng rác (kèm `deletedAt`, `daysLeft` = 30 trừ số ngày nguyên đã qua, tối thiểu 0). `POST /courses/[id]/restore` (không cần mật khẩu):
+  ACTIVE/QUEUED → QUEUED cuối hàng chờ; WISHLIST, DONE giữ nguyên. `DELETE /courses/[id]/purge` `{ password }` chỉ cho khóa đã xoá mềm: `db.delete(studyCourses)` (phần cascade, `study_logs.course_id` → null).
+- Không cron: đầu mỗi `GET /courses` (cả `?deleted=1`) `purgeExpiredCourses(userId)` xoá hẳn khóa CỦA NGƯỜI GỌI quá 30 ngày; lỗi dọn bị nuốt.
+- Lọc ẩn: điều kiện dùng chung `notDeleted` (`lib/study-courses.ts`) ở mọi truy vấn danh sách / lịch / hàng chờ; `findOwnedCourse(..., { includeDeleted: true })` chỉ cho restore/purge.
+  CỐ Ý không lọc: chỗ chỉ hiện tên khóa (`logViews`, `stats` by-course, `cards/insights`) để lịch sử còn tên khóa đã xoá. Buổi học của khóa đã xoá vẫn tính chuỗi ngày/thống kê;
+  `PATCH /logs/[id]` sửa phút/ghi chú được nhưng sửa phần → 409 `course_deleted`; `syncCourseCompletion` bỏ qua khóa đã xoá.
+- `lib/password-guard.ts` `verifyPasswordWithLockout(userId, password)` (+ `passwordFailureResponse`): bcrypt với `users.password_hash`; sai → 403 `wrong_password`, đang khoá → 429 `password_locked` + `retryAfterSeconds`
+  (không so mật khẩu); 5 lần sai → khoá 15 phút, bộ đếm về 0 (lần sai thứ 5 trả luôn 429); đúng → đặt lại bộ đếm. Theo người dùng, một UPDATE nguyên tử. Logic thuần: `lib/password-lockout.ts`, `lib/study-trash.ts` (có test).
 
 ## Việc còn treo (chưa quyết)
 

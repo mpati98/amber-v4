@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
-import { and, asc, eq, inArray, isNotNull, isNull, max, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lt, max, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { studyCourseSections, studyCourses, studyLogs, studySubjects } from "@/db/schema";
 import { forecast, hasLessonToday } from "@/lib/study-forecast";
+import { logActivity } from "@/lib/activity-log";
+import { trashCutoff } from "@/lib/study-trash";
 import { vnToday } from "@/lib/vn-time";
 
 // Logic dùng chung của khóa học Học tập (Trà Đình). Các hàm ghi nhận tx của db.transaction.
@@ -14,6 +16,9 @@ export type SubjectRow = typeof studySubjects.$inferSelect;
 export type CourseRow = typeof studyCourses.$inferSelect;
 export type SectionRow = typeof studyCourseSections.$inferSelect;
 export type CourseStatus = CourseRow["status"];
+
+/** Điều kiện dùng chung: khóa chưa bị xoá mềm. Mọi truy vấn danh sách / phép tính lịch phải kèm điều kiện này. */
+export const notDeleted = isNull(studyCourses.deletedAt);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (s: string) => UUID_RE.test(s);
@@ -55,9 +60,13 @@ export async function findOwnedSubject(dbx: DbLike, id: string, userId: string):
   return row ?? null;
 }
 
-export async function findOwnedCourse(dbx: DbLike, id: string, userId: string): Promise<CourseRow | null> {
+/** Mặc định KHÔNG trả khóa đã xoá mềm; [includeDeleted] dành cho khôi phục / xoá hẳn (khi đó phải tự kiểm `deletedAt`). */
+export async function findOwnedCourse(dbx: DbLike, id: string, userId: string, opts: { includeDeleted?: boolean } = {}): Promise<CourseRow | null> {
   if (!isUuid(id)) return null;
-  const [row] = await dbx.select().from(studyCourses).where(and(eq(studyCourses.id, id), eq(studyCourses.userId, userId)));
+  const [row] = await dbx
+    .select()
+    .from(studyCourses)
+    .where(and(eq(studyCourses.id, id), eq(studyCourses.userId, userId), opts.includeDeleted ? undefined : notDeleted));
   return row ?? null;
 }
 
@@ -72,7 +81,7 @@ function studyOrder(courses: CourseRow[]): CourseRow[] {
 
 /** Dự báo của môn: khóa ACTIVE/QUEUED, chỉ tính phần chưa xong; bắt đầu từ ngày mai nếu hôm nay đã có log. */
 export async function forecastSubject(dbx: DbLike, subject: SubjectRow) {
-  const courses = studyOrder(await dbx.select().from(studyCourses).where(eq(studyCourses.subjectId, subject.id)));
+  const courses = studyOrder(await dbx.select().from(studyCourses).where(and(eq(studyCourses.subjectId, subject.id), notDeleted)));
   const sections = courses.length
     ? await dbx
         .select()
@@ -181,7 +190,7 @@ export async function courseSections(dbx: DbLike, courseId: string) {
 
 /** Danh sách courseView của môn theo thứ tự học (ACTIVE, QUEUED) — dùng cho rebaseline / move. */
 export async function studyQueueViews(dbx: DbLike, userId: string, subjectId: string) {
-  const rows = await dbx.select().from(studyCourses).where(eq(studyCourses.subjectId, subjectId));
+  const rows = await dbx.select().from(studyCourses).where(and(eq(studyCourses.subjectId, subjectId), notDeleted));
   return courseViews(dbx, userId, studyOrder(rows));
 }
 
@@ -205,7 +214,7 @@ export async function snapshotBaselinesIfStarted(tx: DbLike, subjectId: string) 
   const [active] = await tx
     .select({ id: studyCourses.id })
     .from(studyCourses)
-    .where(and(eq(studyCourses.subjectId, subjectId), eq(studyCourses.status, "ACTIVE")))
+    .where(and(eq(studyCourses.subjectId, subjectId), eq(studyCourses.status, "ACTIVE"), notDeleted))
     .limit(1);
   if (active) await snapshotBaselines(tx, subjectId, { overwrite: false });
 }
@@ -222,7 +231,7 @@ export async function queuedCourses(tx: DbLike, subjectId: string, exceptId?: st
   const rows = await tx
     .select()
     .from(studyCourses)
-    .where(and(eq(studyCourses.subjectId, subjectId), eq(studyCourses.status, "QUEUED"), exceptId ? ne(studyCourses.id, exceptId) : undefined));
+    .where(and(eq(studyCourses.subjectId, subjectId), eq(studyCourses.status, "QUEUED"), notDeleted, exceptId ? ne(studyCourses.id, exceptId) : undefined));
   return rows.sort(
     (a, b) =>
       (a.queuePosition ?? Number.MAX_SAFE_INTEGER) - (b.queuePosition ?? Number.MAX_SAFE_INTEGER) ||
@@ -234,7 +243,7 @@ async function hasActive(tx: DbLike, subjectId: string, exceptId?: string): Prom
   const [row] = await tx
     .select({ id: studyCourses.id })
     .from(studyCourses)
-    .where(and(eq(studyCourses.subjectId, subjectId), eq(studyCourses.status, "ACTIVE"), exceptId ? ne(studyCourses.id, exceptId) : undefined))
+    .where(and(eq(studyCourses.subjectId, subjectId), eq(studyCourses.status, "ACTIVE"), notDeleted, exceptId ? ne(studyCourses.id, exceptId) : undefined))
     .limit(1);
   return !!row;
 }
@@ -258,7 +267,8 @@ async function promoteNextQueued(tx: DbLike, subjectId: string, now: Date) {
  * - DONE mà có phần chưa xong (bỏ tick / thêm phần) → về ACTIVE nếu môn chưa có ACTIVE, ngược lại về đầu hàng chờ.
  */
 export async function syncCourseCompletion(tx: DbLike, courseId: string) {
-  const [course] = await tx.select().from(studyCourses).where(eq(studyCourses.id, courseId));
+  // Khóa đã xoá mềm: không đồng bộ trạng thái (đang nằm trong Thùng rác, không được đẩy khóa chờ lên).
+  const [course] = await tx.select().from(studyCourses).where(and(eq(studyCourses.id, courseId), notDeleted));
   if (!course) return;
   const sections = await tx.select({ doneAt: studyCourseSections.doneAt }).from(studyCourseSections).where(eq(studyCourseSections.courseId, courseId));
   const allDone = sections.length > 0 && sections.every((s) => s.doneAt !== null);
@@ -282,7 +292,7 @@ async function nextQueuePosition(tx: DbLike, subjectId: string): Promise<number>
   const [row] = await tx
     .select({ m: max(studyCourses.queuePosition) })
     .from(studyCourses)
-    .where(and(eq(studyCourses.subjectId, subjectId), eq(studyCourses.status, "QUEUED"), isNotNull(studyCourses.queuePosition)));
+    .where(and(eq(studyCourses.subjectId, subjectId), eq(studyCourses.status, "QUEUED"), notDeleted, isNotNull(studyCourses.queuePosition)));
   return (row?.m ?? 0) + 1;
 }
 
@@ -314,4 +324,40 @@ export async function statusColumns(
 export async function afterStatusChange(tx: DbLike, subjectId: string, status: CourseStatus) {
   if (status === "ACTIVE") await snapshotBaselines(tx, subjectId, { overwrite: false });
   if (status === "DONE") await promoteNextQueued(tx, subjectId, new Date());
+}
+
+/** Xoá mềm (gọi trong transaction): đặt deleted_at, bỏ queue_position, đánh số lại hàng chờ 1..n của môn. Khóa ACTIVE bị xoá không đẩy khóa chờ lên. */
+export async function softDeleteCourse(tx: DbLike, course: CourseRow, now: Date) {
+  await tx.update(studyCourses).set({ deletedAt: now, queuePosition: null, updatedAt: now }).where(eq(studyCourses.id, course.id));
+  await renumberQueue(tx, (await queuedCourses(tx, course.subjectId)).map((c) => c.id));
+}
+
+/**
+ * Khôi phục (gọi trong transaction). ACTIVE / QUEUED → QUEUED, xếp cuối hàng chờ (môn có thể đã có khóa ACTIVE khác);
+ * WISHLIST và DONE giữ nguyên trạng thái, không vào hàng chờ.
+ */
+export async function restoreCourse(tx: DbLike, course: CourseRow, now: Date) {
+  const toQueue = course.status === "ACTIVE" || course.status === "QUEUED";
+  const queuePosition = toQueue ? await nextQueuePosition(tx, course.subjectId) : null;
+  await tx
+    .update(studyCourses)
+    .set({ deletedAt: null, updatedAt: now, ...(toQueue ? { status: "QUEUED" as const, queuePosition } : { queuePosition: null }) })
+    .where(eq(studyCourses.id, course.id));
+}
+
+/** Dọn lười: xoá hẳn khóa CỦA [userId] nằm trong Thùng rác quá 30 ngày. Lỗi chỉ ghi nhận, không ném (không được làm hỏng GET danh sách). */
+export async function purgeExpiredCourses(userId: string, now: Date = new Date()): Promise<number> {
+  try {
+    const gone = await db
+      .delete(studyCourses)
+      .where(and(eq(studyCourses.userId, userId), isNotNull(studyCourses.deletedAt), lt(studyCourses.deletedAt, trashCutoff(now))))
+      .returning({ id: studyCourses.id, title: studyCourses.title, subjectId: studyCourses.subjectId });
+    for (const c of gone) {
+      await logActivity({ userId, source: "TRA_DINH", action: "study_course.purged_expired", title: `Xoá hẳn khóa học quá hạn Thùng rác: ${c.title}`, metadata: { courseId: c.id, subjectId: c.subjectId } });
+    }
+    return gone.length;
+  } catch (e) {
+    console.error("purgeExpiredCourses failed", e instanceof Error ? e.message : "unknown");
+    return 0;
+  }
 }

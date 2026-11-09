@@ -5,7 +5,7 @@ import { studyCourses, studyLogs, studySubjects } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
 import { logActivity } from "@/lib/activity-log";
 import { badRequest, invalidBody, patchLogSchema, readJson } from "@/lib/study-input";
-import { courseView, guardStudy, isUuid } from "@/lib/study-courses";
+import { courseView, guardStudy, isUuid, notDeleted } from "@/lib/study-courses";
 import { applyDayRule, logViews, todaySummary, validateLogSections, writeLogSections } from "@/lib/study-logs";
 import { vnToday } from "@/lib/vn-time";
 
@@ -45,13 +45,17 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
   }
 
   if (d.sections !== undefined) {
+    // Khóa của buổi này đang trong Thùng rác: không sửa phần (phút / ghi chú vẫn sửa được).
+    if (log.courseId && !(await db.select({ id: studyCourses.id }).from(studyCourses).where(and(eq(studyCourses.id, log.courseId), notDeleted))).length) {
+      return NextResponse.json({ error: "course_deleted" }, { status: 409 });
+    }
     const sectionError = await validateLogSections(db, log.courseId, d.sections);
     if (sectionError) return badRequest(sectionError);
   }
 
   return guardStudy(async () => {
     const result = await db.transaction(async (tx) => {
-      const [course] = log.courseId ? await tx.select().from(studyCourses).where(eq(studyCourses.id, log.courseId)) : [null];
+      const [course] = log.courseId ? await tx.select().from(studyCourses).where(and(eq(studyCourses.id, log.courseId), notDeleted)) : [null];
       await tx
         .update(studyLogs)
         .set({
@@ -62,7 +66,7 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
       if (d.sections !== undefined) await writeLogSections(tx, log.id, log.courseId, d.sections);
       await applyDayRule(tx, userId, subject, today, d.stopForToday);
 
-      const [freshCourse] = log.courseId ? await tx.select().from(studyCourses).where(eq(studyCourses.id, log.courseId)) : [null];
+      const [freshCourse] = log.courseId ? await tx.select().from(studyCourses).where(and(eq(studyCourses.id, log.courseId), notDeleted)) : [null];
       return {
         log: (await logViews(tx, [log.id]))[0],
         today: await todaySummary(tx, subject, today),

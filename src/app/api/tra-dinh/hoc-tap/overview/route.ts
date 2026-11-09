@@ -3,7 +3,7 @@ import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { studyCards, studyCourses, studyDayReasons, studyLogs, studySubjects } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
-import { courseViews } from "@/lib/study-courses";
+import { courseViews, notDeleted } from "@/lib/study-courses";
 import { dayTotals, subjectStudyStats } from "@/lib/study-days";
 import { buildOverview, weekBounds, type ActivityKey } from "@/lib/study-overview";
 import { loadDays } from "@/lib/study-card-plan";
@@ -53,7 +53,7 @@ export const GET = withAuth(async (_req, userId) => {
         .where(and(inArray(studyDayReasons.subjectId, ids), eq(studyDayReasons.reasonDate, today)))
     : [];
 
-  const courses = ids.length ? await db.select().from(studyCourses).where(and(eq(studyCourses.userId, userId), inArray(studyCourses.subjectId, ids))) : [];
+  const courses = ids.length ? await db.select().from(studyCourses).where(and(eq(studyCourses.userId, userId), notDeleted, inArray(studyCourses.subjectId, ids))) : [];
   const views = await courseViews(db, userId, courses);
   const coursesBySubject = new Map<string, typeof views>();
   for (const v of views) coursesBySubject.set(v.subjectId, [...(coursesBySubject.get(v.subjectId) ?? []), v]);

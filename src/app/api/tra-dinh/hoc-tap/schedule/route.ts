@@ -5,7 +5,7 @@ import { routines, studyCourses, studyDayReasons, studyLogs } from "@/db/schema"
 import { withAuth } from "@/lib/withAuth";
 import { dateString } from "@/lib/project-input";
 import { badRequest } from "@/lib/study-input";
-import { courseViews, findOwnedSubject, forecastSubject, isUuid } from "@/lib/study-courses";
+import { courseViews, findOwnedSubject, forecastSubject, isUuid, notDeleted } from "@/lib/study-courses";
 import { dayTotals } from "@/lib/study-days";
 import { logViews } from "@/lib/study-logs";
 import { dayDiff } from "@/lib/study-overview";
@@ -40,7 +40,7 @@ export const GET = withAuth(async (req, userId) => {
     .from(studyDayReasons)
     .where(and(eq(studyDayReasons.subjectId, subject.id), between(studyDayReasons.reasonDate, from.data, to.data)));
 
-  const courseRows = await db.select().from(studyCourses).where(eq(studyCourses.subjectId, subject.id));
+  const courseRows = await db.select().from(studyCourses).where(and(eq(studyCourses.subjectId, subject.id), notDeleted));
   const views = await courseViews(db, userId, courseRows);
   // Khoảng nằm hoàn toàn trong quá khứ thì không chạy forecast; forecast luôn bắt đầu từ hôm nay.
   const forecastDays = needsForecast(today, to.data) ? (await forecastSubject(db, subject)).days : [];

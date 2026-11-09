@@ -1,12 +1,13 @@
 // Kiểm thử tích hợp API môn học + khóa học của Học tập (Trà Đình) trên Neon DEV BRANCH (npm run dev phải đang chạy ở :3000).
 // Chạy: npx tsx scripts/study-courses-e2e.ts — tạo 2 user tạm, môn/khóa tạm, kiểm tra tạo bằng sectionsText + dự báo, ràng buộc 1 ACTIVE,
-// tick hết phần → DONE + khóa chờ lên ACTIVE, bỏ tick → mở lại, move, PUT sections giữ done_at, cô lập user, rồi XÓA user
+// xoá mềm / Thùng rác / khôi phục / purge / khoá mật khẩu / dọn lười, tick hết phần → DONE + khóa chờ lên ACTIVE, bỏ tick → mở lại, move, PUT sections giữ done_at, cô lập user, rồi XÓA user
 // tạm (cascade). Từ chối chạy nếu DB là production. Không in token/URL.
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { routines, studyCourses, studySubjects, users } from "@/db/schema";
+import { routines, studyCards, studyCourses, studyLogs, studySubjects, users } from "@/db/schema";
 import { signAccessToken } from "@/lib/mobile-auth";
 import { vnToday } from "@/lib/vn-time";
 
@@ -15,7 +16,9 @@ if (!process.env.DATABASE_URL || host(process.env.DATABASE_URL) === host(process
   console.error("Từ chối chạy: DATABASE_URL không phải nhánh dev (trùng host production hoặc chưa đặt).");
   process.exit(3);
 }
+const PW = "e2e-mat-khau-dung"; // mật khẩu của hai user tạm (hash cost 4 cho nhanh)
 const BASE = "http://localhost:3000/api/tra-dinh/hoc-tap";
+type TrashCourse = { id: string; queuePosition: number | null; daysLeft: number };
 let fails = 0;
 const check = (name: string, ok: boolean, extra?: unknown) => { if (!ok) fails++; console.log(`${ok ? "PASS" : "FAIL"} ${name}${ok ? "" : " " + JSON.stringify(extra)}`); };
 const call = async (tok: string | null, method: string, path: string, body?: unknown) => {
@@ -25,7 +28,7 @@ const call = async (tok: string | null, method: string, path: string, body?: unk
 };
 
 async function main() {
-  const mk = async () => (await db.insert(users).values({ email: `study-e2e-${randomUUID()}@example.invalid`, passwordHash: "x" }).returning({ id: users.id }))[0];
+  const mk = async () => (await db.insert(users).values({ email: `study-e2e-${randomUUID()}@example.invalid`, passwordHash: bcrypt.hashSync(PW, 4) }).returning({ id: users.id }))[0];
   const a = await mk(), b = await mk();
   try {
     const A = await signAccessToken(a.id), B = await signAccessToken(b.id);
@@ -170,11 +173,122 @@ async function main() {
     // ---- cô lập user ----
     check("user khác GET khóa 404", (await call(B, "GET", `/courses/${cA}`)).s === 404);
     check("user khác PUT sections 404", (await call(B, "PUT", `/courses/${cA}/sections`, [])).s === 404);
-    check("user khác DELETE khóa 404", (await call(B, "DELETE", `/courses/${cA}`)).s === 404);
+    check("user khác DELETE khóa 404 (kể cả có mật khẩu đúng của họ)", (await call(B, "DELETE", `/courses/${cA}`, { password: PW })).s === 404);
     check("user khác list khóa rỗng", (await call(B, "GET", "/courses")).j.length === 0);
 
     // ---- xoá ----
-    check("DELETE khóa", (await call(A, "DELETE", `/courses/${cW}`)).j?.ok === true && (await call(A, "GET", `/courses/${cW}`)).s === 404);
+    check("DELETE khóa (xoá mềm, đúng mật khẩu); GET theo id sau đó 404", (await call(A, "DELETE", `/courses/${cW}`, { password: PW })).j?.ok === true && (await call(A, "GET", `/courses/${cW}`)).s === 404);
+
+    // ---- xoá mềm / Thùng rác ----
+    const s3 = await call(A, "POST", "/subjects", { name: "Môn xoá mềm", dailyGoalMinutes: 30 });
+    const sid3 = s3.j.id;
+    const mkC = (title: string, extra: object = {}) => call(A, "POST", "/courses", { subjectId: sid3, title, sectionsText: "P1 30min\nP2 30min", ...extra });
+    const cx = (await mkC("X đang học", { status: "ACTIVE" })).j.id, cy = (await mkC("Y chờ 1")).j.id, cz = (await mkC("Z chờ 2")).j.id, cq = (await mkC("Q chờ 3")).j.id;
+    const cw3 = (await call(A, "POST", "/courses", { subjectId: sid3, title: "W muốn mua", status: "WISHLIST" })).j.id;
+    const cd3 = (await call(A, "POST", "/courses", { subjectId: sid3, title: "D xong", status: "DONE" })).j.id;
+    const xDetail = (await call(A, "GET", `/courses/${cx}`)).j;
+    const lg = await call(A, "POST", "/logs", { subjectId: sid3, courseId: cx, minutes: 25, sections: [{ sectionId: xDetail.sections[0].id }] });
+    check("ghi buổi cho khóa X", lg.s === 201, lg);
+    const logId = lg.j.log.id as string;
+    const [card] = await db.insert(studyCards).values({ userId: a.id, subjectId: sid3, sourceLogId: logId, phrase: "keep me around", phraseKey: "keep me around", meaning: "m", example: "e", kind: "PHRASAL_VERB" }).returning({ id: studyCards.id });
+    const ids3 = async () => (await call(A, "GET", `/courses?subjectId=${sid3}`)).j.map((c: TrashCourse) => c.id).join();
+    const dbCourse = async (id: string) => (await db.select().from(studyCourses).where(eq(studyCourses.id, id)))[0];
+    const resetLock = () => db.update(users).set({ pwFailedCount: 0, pwLockedUntil: null }).where(eq(users.id, a.id));
+
+    // mật khẩu
+    check("DELETE thiếu body → 400, khóa còn", (await call(A, "DELETE", `/courses/${cq}`)).s === 400 && (await dbCourse(cq)).deletedAt === null);
+    const bad1 = await call(A, "DELETE", `/courses/${cq}`, { password: "sai" });
+    check("sai mật khẩu → 403, khóa còn nguyên", bad1.s === 403 && (await dbCourse(cq)).deletedAt === null && (await ids3()).includes(cq), bad1);
+    check("thiếu password → 400", (await call(A, "DELETE", `/courses/${cq}`, {})).s === 400);
+    const bads = [];
+    for (let i = 0; i < 3; i++) bads.push((await call(A, "DELETE", `/courses/${cq}`, { password: "sai" })).s);
+    const fifth = await call(A, "DELETE", `/courses/${cq}`, { password: "sai" });
+    check("sai 2–4 lần → 403; lần sai thứ 5 → 429 kèm số giây", bads.join() === "403,403,403" && fifth.s === 429 && fifth.j.error === "password_locked" && fifth.j.retryAfterSeconds > 800, [bads, fifth]);
+    const lockedOk = await call(A, "DELETE", `/courses/${cq}`, { password: PW });
+    check("đang khoá: mật khẩu ĐÚNG vẫn 429, khóa còn nguyên", lockedOk.s === 429 && (await dbCourse(cq)).deletedAt === null, lockedOk);
+    check("khoá tính theo người dùng: user khác không bị ảnh hưởng", (await call(B, "GET", "/courses")).s === 200 && (await db.select().from(users).where(eq(users.id, b.id)))[0].pwFailedCount === 0);
+    check("purge khóa còn sống → 404 (kiểm tồn tại trước mật khẩu)", (await call(A, "DELETE", `/courses/${cq}/purge`, { password: PW })).s === 404);
+    await resetLock();
+
+    // xoá mềm: hàng chờ không lỗ trống
+    check("hàng chờ trước khi xoá Y,Z,Q = 1,2,3", (await call(A, "GET", `/courses?subjectId=${sid3}&status=QUEUED`)).j.map((c: TrashCourse) => c.queuePosition).join() === "1,2,3");
+    const delY = await call(A, "DELETE", `/courses/${cy}`, { password: PW });
+    check("xoá Y (đúng mật khẩu) → ok, Y biến khỏi danh sách", delY.j?.ok === true && !(await ids3()).includes(cy), delY);
+    const qAfter = (await call(A, "GET", `/courses?subjectId=${sid3}&status=QUEUED`)).j;
+    check("hàng chờ đánh số lại 1,2 (Z,Q), không lỗ trống", qAfter.map((c: TrashCourse) => `${c.id === cz ? "Z" : c.id === cq ? "Q" : "?"}${c.queuePosition}`).join() === "Z1,Q2", qAfter);
+    const yRow = await dbCourse(cy);
+    check("Y có deleted_at, queue_position null", !!yRow.deletedAt && yRow.queuePosition === null);
+    check("Y: GET/PATCH/move/sections theo id → 404", (await call(A, "GET", `/courses/${cy}`)).s === 404 && (await call(A, "PATCH", `/courses/${cy}`, { title: "x" })).s === 404 && (await call(A, "POST", `/courses/${cy}/move`, { direction: "up" })).s === 404 && (await call(A, "PUT", `/courses/${cy}/sections`, [])).s === 404);
+    check("xoá lại khóa đã xoá → 404", (await call(A, "DELETE", `/courses/${cy}`, { password: PW })).s === 404);
+    const ovAfter = (await call(A, "GET", "/overview")).j;
+    const ovCourses = JSON.stringify(ovAfter.subjects.find((x: { subjectId: string }) => x.subjectId === sid3) ?? {}) + JSON.stringify(ovAfter.courses ?? {});
+    check("tổng quan không còn Y", !ovCourses.includes(cy) && !ovCourses.includes("Y chờ 1"));
+    const today3 = vnToday();
+    const sched = await call(A, "GET", `/schedule?subjectId=${sid3}&from=${today3}&to=${today3}`);
+    check("lịch 200 và không còn Y", sched.s === 200 && !JSON.stringify(sched.j).includes(cy));
+    const stat = await call(A, "GET", "/stats?range=7");
+    check("thống kê 200, buổi học đã ghi vẫn tính và hiện tên khóa X", stat.s === 200 && JSON.stringify(stat.j).includes("X đang học") && !JSON.stringify(stat.j.subjects ?? []).includes(cy), stat.s);
+
+    // Thùng rác
+    const tr = await call(A, "GET", `/courses?deleted=1&subjectId=${sid3}`);
+    check("Thùng rác: có Y, kèm deletedAt + daysLeft = 30", tr.s === 200 && tr.j.length === 1 && tr.j[0].id === cy && !!tr.j[0].deletedAt && tr.j[0].daysLeft === 30 && tr.j[0].title === "Y chờ 1", tr.j);
+    check("Thùng rác: user khác thấy rỗng; deleted=2 → 400", (await call(B, "GET", "/courses?deleted=1")).j.length === 0 && (await call(A, "GET", "/courses?deleted=2")).s === 400);
+
+    // xoá khóa ACTIVE không đẩy khóa chờ lên
+    check("xoá X (ACTIVE) → ok; Z, Q vẫn QUEUED (không tự lên ACTIVE)", (await call(A, "DELETE", `/courses/${cx}`, { password: PW })).j?.ok === true && (await dbCourse(cz)).status === "QUEUED" && (await dbCourse(cq)).status === "QUEUED");
+    const logAfter = (await db.select().from(studyLogs).where(eq(studyLogs.id, logId)))[0];
+    check("buổi học của X còn, course_id vẫn trỏ X (xoá mềm)", !!logAfter && logAfter.courseId === cx);
+    const logsRes = await call(A, "GET", `/logs?subjectId=${sid3}&from=${today3}&to=${today3}`);
+    check("GET logs vẫn hiện tên khóa X đã xoá", logsRes.s === 200 && JSON.stringify(logsRes.j).includes("X đang học"));
+    const patchLog = await call(A, "PATCH", `/logs/${logId}`, { minutes: 30 });
+    check("sửa phút buổi học của khóa đã xoá vẫn được, course = null", patchLog.s === 200 && patchLog.j.course === null, patchLog);
+    check("sửa phần của buổi thuộc khóa đã xoá → 409 course_deleted", (await call(A, "PATCH", `/logs/${logId}`, { sections: [{ sectionId: xDetail.sections[1].id, markDone: true }] })).j?.error === "course_deleted");
+    check("ghi buổi mới vào khóa đã xoá → 404", (await call(A, "POST", "/logs", { subjectId: sid3, courseId: cx, minutes: 5 })).s === 404);
+    check("môn không còn ACTIVE: tạo khóa ACTIVE mới được (khóa đã xoá không chiếm chỗ)", (await mkC("N đang học", { status: "ACTIVE" })).s === 201);
+
+    // khôi phục
+    check("user khác khôi phục → 404", (await call(B, "POST", `/courses/${cy}/restore`)).s === 404);
+    check("khôi phục khóa còn sống → 404", (await call(A, "POST", `/courses/${cz}/restore`)).s === 404);
+    const rX = await call(A, "POST", `/courses/${cx}/restore`);
+    const qNow = (await call(A, "GET", `/courses?subjectId=${sid3}&status=QUEUED`)).j;
+    check("khôi phục X (từng ACTIVE; môn đã có N ACTIVE) → QUEUED cuối hàng chờ, không cần mật khẩu", rX.s === 200 && rX.j.status === "QUEUED" && qNow.map((c: TrashCourse) => c.queuePosition).join() === "1,2,3" && qNow[2].id === cx, [rX.s, rX.j?.status, qNow.map((c: TrashCourse) => c.queuePosition)]);
+    check("khôi phục: (X) không còn trong Thùng rác nhưng Y còn", (await call(A, "GET", `/courses?deleted=1&subjectId=${sid3}`)).j.map((c: TrashCourse) => c.id).join() === cy);
+    await call(A, "DELETE", `/courses/${cw3}`, { password: PW });
+    await call(A, "DELETE", `/courses/${cd3}`, { password: PW });
+    const rW = await call(A, "POST", `/courses/${cw3}/restore`), rD = await call(A, "POST", `/courses/${cd3}/restore`);
+    check("khôi phục WISHLIST giữ WISHLIST, không vào hàng chờ; DONE giữ DONE", rW.j?.status === "WISHLIST" && rW.j.queuePosition === null && rD.j?.status === "DONE" && rD.j.queuePosition === null && (await call(A, "GET", `/courses?subjectId=${sid3}&status=QUEUED`)).j.length === 3, [rW.j?.status, rD.j?.status]);
+
+    // purge
+    check("purge khóa chưa xoá → 404; user khác purge → 404", (await call(A, "DELETE", `/courses/${cz}/purge`, { password: PW })).s === 404 && (await call(B, "DELETE", `/courses/${cy}/purge`, { password: PW })).s === 404);
+    check("purge sai mật khẩu → 403, Y còn trong Thùng rác", (await call(A, "DELETE", `/courses/${cy}/purge`, { password: "sai" })).s === 403 && !!(await dbCourse(cy)));
+    await resetLock();
+    check("purge đúng mật khẩu → Y mất hẳn khỏi bảng", (await call(A, "DELETE", `/courses/${cy}/purge`, { password: PW })).j?.ok === true && !(await dbCourse(cy)));
+
+    // dọn lười: lùi deleted_at 31 ngày bằng SQL rồi GET
+    const cOld = (await mkC("Cũ quá hạn")).j.id, cFresh = (await mkC("Mới xoá")).j.id;
+    const oldSec = (await call(A, "GET", `/courses/${cOld}`)).j.sections[0].id as string;
+    const oldLog = await call(A, "POST", "/logs", { subjectId: sid3, courseId: cOld, minutes: 10, sections: [{ sectionId: oldSec }] });
+    const [card2] = await db.insert(studyCards).values({ userId: a.id, subjectId: sid3, sourceLogId: oldLog.j.log.id, phrase: "second keeper", phraseKey: "second keeper", meaning: "m", example: "e", kind: "IDIOM" }).returning({ id: studyCards.id });
+    await call(A, "DELETE", `/courses/${cOld}`, { password: PW });
+    await call(A, "DELETE", `/courses/${cFresh}`, { password: PW });
+    await db.update(studyCourses).set({ deletedAt: sql`now() - interval '31 days'` }).where(eq(studyCourses.id, cOld));
+    await db.update(studyCourses).set({ deletedAt: sql`now() - interval '29 days'` }).where(eq(studyCourses.id, cFresh));
+    const trash2 = await call(A, "GET", `/courses?deleted=1&subjectId=${sid3}`);
+    check("dọn lười khi GET Thùng rác: khóa 31 ngày bị xoá hẳn; khóa 29 ngày còn, daysLeft 1", trash2.j.map((c: TrashCourse) => `${c.id === cFresh ? "fresh" : "?"}:${c.daysLeft}`).join() === "fresh:1" && !(await dbCourse(cOld)), trash2.j);
+    const logOld = (await db.select().from(studyLogs).where(eq(studyLogs.id, oldLog.j.log.id)))[0];
+    const card2Row = (await db.select().from(studyCards).where(eq(studyCards.id, card2.id)))[0];
+    check("sau xoá hẳn: buổi học còn với course_id = null, thẻ còn (vẫn trỏ buổi học), phần cũ mất", !!logOld && logOld.courseId === null && card2Row?.sourceLogId === oldLog.j.log.id && (await db.select().from(studyLogs).where(eq(studyLogs.courseId, cOld))).length === 0);
+    check("thẻ của buổi cũ hơn cũng còn nguyên", (await db.select().from(studyCards).where(eq(studyCards.id, card.id))).length === 1);
+    await db.update(studyCourses).set({ deletedAt: sql`now() - interval '40 days'` }).where(eq(studyCourses.id, cFresh));
+    await call(A, "GET", `/courses?subjectId=${sid3}`);
+    check("dọn lười cũng chạy ở GET danh sách thường", !(await dbCourse(cFresh)));
+    const bOld = (await call(B, "POST", "/subjects", { name: "Môn của B" })).j.id;
+    const bc = (await call(B, "POST", "/courses", { subjectId: bOld, title: "B giữ" })).j.id;
+    await call(B, "DELETE", `/courses/${bc}`, { password: PW });
+    await db.update(studyCourses).set({ deletedAt: sql`now() - interval '60 days'` }).where(eq(studyCourses.id, bc));
+    await call(A, "GET", "/courses?deleted=1");
+    check("dọn lười của A không đụng khóa quá hạn của user B", !!(await dbCourse(bc)));
+
     const routineHolder = await db.insert(routines).values({ userId: a.id, name: "Học", kind: "CHECK", studySubjectId: s2.j.id }).returning({ id: routines.id });
     check("DELETE môn đang có routine trỏ tới → 409 subject_in_use", (await call(A, "DELETE", `/subjects/${s2.j.id}`)).j?.error === "subject_in_use" && routineHolder.length === 1);
     check("DELETE môn: cascade khóa", (await call(A, "DELETE", `/subjects/${sid}`)).j?.ok === true && (await db.select().from(studyCourses).where(eq(studyCourses.subjectId, sid))).length === 0);

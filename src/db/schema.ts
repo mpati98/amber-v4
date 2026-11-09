@@ -38,6 +38,9 @@ export const users = pgTable("users", {
   email: varchar("email", { length: 255 }).notNull().unique(),
   name: varchar("name", { length: 255 }),
   passwordHash: text("password_hash").notNull(),
+  // Giới hạn thử mật khẩu theo người dùng (lib/password-guard.ts): đếm lần sai, khoá tới pw_locked_until.
+  pwFailedCount: integer("pw_failed_count").notNull().default(0),
+  pwLockedUntil: timestamp("pw_locked_until", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -345,6 +348,8 @@ export const studyCourses = pgTable("study_courses", {
   baselineFinishDate: date("baseline_finish_date"),
   startedAt: timestamp("started_at", { withTimezone: true }),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
+  // Xoá mềm: có giá trị = khóa nằm trong Thùng rác (30 ngày rồi xoá hẳn).
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
