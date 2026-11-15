@@ -51,5 +51,6 @@ export default defineConfig({
     "study_card_reviews",
     "study_card_day_plan_items",
     "music_tracks",
+    "sleep_logs",
   ],
 });

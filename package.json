@@ -14,7 +14,8 @@
     "test": "tsx --test src/lib/*.test.ts",
     "test:brain-logs": "tsx scripts/brain-logs-e2e.ts",
     "test:routines": "tsx scripts/routines-workout-e2e.ts",
-    "test:music": "tsx scripts/music-tracks-e2e.ts"
+    "test:music": "tsx scripts/music-tracks-e2e.ts",
+    "test:world": "tsx scripts/world-e2e.ts"
   },
   "engines": {
     "node": "22.x"

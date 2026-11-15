@@ -257,6 +257,26 @@ Mỗi khóa học tối đa MỘT tài liệu ghi chú trong `documents`. Tóm t
   Xoá khóa (mềm: không đụng; hẳn: SET NULL) không xoá tài liệu.
 - `documents` không có `user_id` (Tàng Kinh Các vốn không lọc theo user): mọi tài liệu, kể cả ghi chú khóa, nhìn thấy được bởi mọi tài khoản đã đăng nhập — chỉ `note-document` kiểm quyền khóa. Test: `scripts/study-course-note-e2e.ts`.
 
+## Màn chủ 3D — Âm Dương Giới (15/11/2026, repo `amber-world`, migration `0017_sleep_logs`)
+
+App Flutter nhúng cảnh 3D (iframe `/world/`) và đẩy dữ liệu vào bằng `AmberWorld`. Backend chỉ cung cấp dữ liệu; route nằm dưới prefix có sẵn
+(`/api/kieu-lau`, `/api/du-an`) nên KHÔNG phải sửa `proxy.ts` hay CORS.
+
+- `GET /api/kieu-lau/world?since=<cursor>`: `{stats: {sinhLuc, nganKho, triThuc, kyNang, heThong: {v: 0–100 | null, src, sample?}}, events: [{id, from, lvl, text, at}], cursor, generatedAt}`.
+  Client gọi khi có trigger (mở / quay lại màn chủ, app trở lại foreground) — không polling. `events` lấy từ `activity_logs` sau `since` (cũ trước, tối đa 30);
+  không có `since` → 3 dòng gần nhất. `cursor` giữ micro giây của Postgres (`to_char(... 'US')`) và so bằng `::timestamptz`: KHÔNG đi qua `Date` của JS (cắt còn mili giây → dòng cuối bị đọc lại mãi).
+  `source` → công trình: DU_AN/FINANCE → nghisu, TRA_DINH → tradinh, KIEU_LAU/MUSIC → kieulau, LEARN → tangkinh (`SOURCE_TOWER`).
+- Công thức tạm (`lib/world-stats.ts`, có test; chủ dự án sẽ chỉnh): Sinh lực = 60% giấc ngủ (7–9 giờ = 100, chất lượng 1–5 nhân 0,6–1,0; chưa ghi 3 ngày → đêm mẫu 7 giờ, `sample: true`)
+  + 40% phút WORKOUT 7 ngày / 150 · Ngân khố = phần ngân sách tháng còn lại (chỉ danh mục có ngân sách) · Tri thức = sách đọc xong trong năm (+ phần sách đang đọc theo trang) / nhịp mục tiêu năm tới hôm nay
+  · Kỹ năng = trung bình `skill_scores` · Hệ thống = tuổi nhật ký amber-brain mới nhất (≤ 24 giờ = 100, mỗi ngày sau −15). Thiếu dữ liệu → `v: null`.
+- `GET /api/kieu-lau/weather`: Open-Meteo qua server (không khoá), toạ độ `WEATHER_LAT` / `WEATHER_LON` (thiếu → trung tâm TP.HCM), đệm 15 phút theo instance;
+  trả `{code (WMO), temp, wind, sunrise, sunset (giờ thập phân giờ VN), source, updatedAt}`; Open-Meteo lỗi → 502 `weather_unavailable`.
+- Giấc ngủ: bảng `sleep_logs` (1 dòng / user / ngày thức dậy theo lịch VN, unique `(user_id, date)`, `sleep_minutes` 0–1440, `quality` 1–5 hoặc null, CHECK).
+  `GET /api/du-an/sleep?days=14` (1–90, mới trước, kèm `today`), `PUT /api/du-an/sleep {date, sleepMinutes, quality?, note?}` (upsert; tương lai → `future_date`, quá 60 ngày → `too_old`),
+  `DELETE /api/du-an/sleep/[date]` (404 `sleep_not_found`). Không ghi `activity_logs` (enum `source` không có nguồn phù hợp).
+- **Migration 0017 mới áp Neon DEV** (18/18), CHƯA áp production. Chỉ thêm bảng nên bản code cũ vẫn chạy; áp TRƯỚC khi deploy code này (route đọc `sleep_logs`).
+- Kiểm thử: `npm test` (công thức, Open-Meteo, validate giấc ngủ), `npm run test:world` (tích hợp trên DEV, cần `npm run dev`; gọi Open-Meteo thật).
+
 ## Việc còn treo (chưa quyết)
 
 - Kết thúc buổi Trà Đình và bài test đầu vào **ghi đè** toàn bộ điểm kỹ năng AI

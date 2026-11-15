@@ -756,6 +756,29 @@ export const agentLogs = pgTable(
   ]
 );
 
+// ===== Sinh lực — giấc ngủ tự ghi mỗi sáng (chỉ số Sinh lực của màn chủ 3D) =====
+// 1 dòng / user / đêm; `date` = ngày thức dậy theo lịch VN ("YYYY-MM-DD"). Ghi lại cùng ngày là sửa.
+export const sleepLogs = pgTable(
+  "sleep_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    sleepMinutes: integer("sleep_minutes").notNull(),
+    quality: integer("quality"), // 1 (rất tệ) … 5 (rất tốt), null = không đánh giá
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("sleep_logs_user_id_date_key").on(table.userId, table.date),
+    check("sleep_logs_sleep_minutes_check", sql`${table.sleepMinutes} between 0 and 1440`),
+    check("sleep_logs_quality_check", sql`${table.quality} is null or ${table.quality} between 1 and 5`),
+  ]
+);
+
 // ============================================================
 // Relations — đặt sau CÙNG, sau khi mọi bảng đã được định nghĩa,
 // để tránh lỗi "Cannot access 'X' before initialization" lúc runtime.
