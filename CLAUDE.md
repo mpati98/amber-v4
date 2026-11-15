@@ -209,6 +209,12 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
   cột `study_logs.practice_session_id` (uuid null, unique index `study_logs_practice_session_id_key`, FK `study_logs_practice_session_id_fk` → `practice_session_details(project_id)` `ON DELETE SET NULL`).
   `drizzle.__drizzle_migrations` = 13/13; `study_logs` 0, `study_cards` 0, `practice_session_details` 1, 41 bảng `public`, số dư ví (Cash 2.387.000, Momo −3.350.565) đều giống hệt trước migrate. **KHÔNG có nhánh sao lưu** (dựa vào PITR).
   Deploy: backend `dpl_GnH36PhDwqLmo6a6pzoXyMHF1wJu` Ready (push `ff7dee8`); smoke test `/api/health` 200, route có token 401, preflight từ `amber.duangmai.io.vn` 204; log runtime không có lỗi.
+- **Migration production 0017** (`0017_sleep_logs`, màn chủ 3D) áp ngày **15/11/2026**, mốc PITR `2026-11-15T11:51:04Z` (không có nhánh sao lưu). Trước khi áp, production đã có 0015 + 0016
+  nhưng **KHÔNG có 0014** (bảng `learn_*` còn, kèm dữ liệu: 1 dòng `learn_course_details`, 1 project `LEARN`). drizzle-kit chỉ áp migration mới hơn cái cuối đã ghi → lần này chỉ áp 0017;
+  **0014 bị bỏ qua vĩnh viễn**, muốn gỡ bảng cũ phải xử lý tay (xoá 2 dòng dữ liệu cũ, chạy SQL của 0014, chèn bản ghi `__drizzle_migrations` với hash + `created_at` của 0014). Code hiện tại không đọc `learn_*` nên để nguyên không sao.
+  `drizzle.__drizzle_migrations` = 17/18; 42 bảng public; số dư ví (Cash 2.185.000, Momo −3.350.565) không đổi. Kiểm bằng `node scripts/migration-status.mjs PRODUCTION` (chỉ đọc, khớp theo dấu thời gian, báo migration bị bỏ qua).
+  Deploy: backend `dpl_C2chmRj897QZmQoUSCqJA32gk4Vh` (`c8e189b`) Ready 11:52 UTC; smoke: `/api/health` 200, `/api/kieu-lau/world|weather` + `/api/du-an/sleep` không token 401, preflight từ `amber.duangmai.io.vn` 204; log không lỗi.
+  Mốc rollback: `dpl_AUGKDhrLfpRfzqYgtUfwMiG5B5qW` (`3b2eacb`, 09/11) — chạy được trên schema mới (0017 chỉ thêm bảng).
 - **Quy trình migrate production đã chạy tốt** — làm lại đúng thế này:
   1. Sao lưu: tạo nhánh Neon từ production (console; máy này không có `neonctl`). Nếu người dùng bỏ bước này (06/11/2026) thì dựa vào point-in-time restore và ghi mốc UTC (có giây) ngay trước lệnh migrate.
   2. Thử trước trên nhánh tách từ production (`test-migrate-*`): ghi số dòng + số dư ví + số migration đã áp
@@ -274,7 +280,7 @@ App Flutter nhúng cảnh 3D (iframe `/world/`) và đẩy dữ liệu vào bằ
 - Giấc ngủ: bảng `sleep_logs` (1 dòng / user / ngày thức dậy theo lịch VN, unique `(user_id, date)`, `sleep_minutes` 0–1440, `quality` 1–5 hoặc null, CHECK).
   `GET /api/du-an/sleep?days=14` (1–90, mới trước, kèm `today`), `PUT /api/du-an/sleep {date, sleepMinutes, quality?, note?}` (upsert; tương lai → `future_date`, quá 60 ngày → `too_old`),
   `DELETE /api/du-an/sleep/[date]` (404 `sleep_not_found`). Không ghi `activity_logs` (enum `source` không có nguồn phù hợp).
-- **Migration 0017 mới áp Neon DEV** (18/18), CHƯA áp production. Chỉ thêm bảng nên bản code cũ vẫn chạy; áp TRƯỚC khi deploy code này (route đọc `sleep_logs`).
+- **Migration 0017 đã áp production 15/11/2026** (xem "Triển khai production"); code lên production cùng ngày (`c8e189b`).
 - Kiểm thử: `npm test` (công thức, Open-Meteo, validate giấc ngủ), `npm run test:world` (tích hợp trên DEV, cần `npm run dev`; gọi Open-Meteo thật).
 
 ## Việc còn treo (chưa quyết)

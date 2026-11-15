@@ -18,8 +18,16 @@ const journal = JSON.parse(fs.readFileSync(new URL('../drizzle/meta/_journal.jso
 const sql = postgres(url, { max: 1, prepare: false });
 try {
   await sql.begin('read only', async (tx) => {
-    const [m] = await tx`select count(*)::int as n, max(created_at) as last from drizzle.__drizzle_migrations`;
-    console.log(`Đã áp ${m.n}/${journal.length} migration${m.n < journal.length ? ` → còn treo: ${journal.slice(m.n).map(e => e.tag).join(', ')}` : ' (đủ)'}`);
+    // Khớp theo dấu thời gian (created_at = journal.when), KHÔNG theo thứ tự: production từng áp 0015/0016 mà bỏ 0014.
+    // Lưu ý drizzle-kit migrate chỉ áp migration MỚI HƠN cái cuối đã áp → migration bị bỏ giữa chừng sẽ không bao giờ tự áp.
+    const rows = await tx`select created_at from drizzle.__drizzle_migrations`;
+    const applied = new Set(rows.map(r => Number(r.created_at)));
+    const last = Math.max(0, ...applied);
+    const missing = journal.filter(e => !applied.has(e.when));
+    const skipped = missing.filter(e => e.when < last), pending = missing.filter(e => e.when > last);
+    console.log(`Đã áp ${rows.length}/${journal.length} migration${missing.length ? '' : ' (đủ)'}`);
+    if (pending.length) console.log('Còn treo (db:migrate sẽ áp):', pending.map(e => e.tag).join(', '));
+    if (skipped.length) console.log('BỊ BỎ QUA (cũ hơn migration cuối → db:migrate KHÔNG tự áp, phải xử lý tay):', skipped.map(e => e.tag).join(', '));
     const reg = async (name) => (await tx`select to_regclass(${'public.' + name}) is not null as ok`)[0].ok;
     const col = async (t, c) => (await tx`select count(*)::int as n from information_schema.columns where table_schema='public' and table_name=${t} and column_name=${c}`)[0].n > 0;
     console.log('Dấu hiệu:', JSON.stringify({
