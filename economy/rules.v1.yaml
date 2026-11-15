@@ -4,6 +4,10 @@
 # Hệ số là giá trị khởi điểm; chỉnh sau vài tuần chạy thử. Đổi luật ⇒ tăng version.
 version: 1
 
+# Chế độ bóng: null ⇒ phạt Nguyên Tệ chỉ được ghi lại (raw_amount), không trừ, UI chưa hiện — để chỉnh hệ số trước.
+# Bật phạt: đặt ngày "YYYY-MM-DD"; phạt từ ngày đó trở đi mới trừ thật, phạt cũ vẫn là bóng.
+penalties_live_from: null
+
 caps:
   nguyen_te_per_day: 100   # trần KIẾM mỗi ngày (phạt không bị trần)
   manual_weight: 0.5       # entry từ dữ liệu nhập tay nhân hệ số này

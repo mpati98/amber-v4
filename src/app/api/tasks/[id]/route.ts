@@ -9,6 +9,7 @@ import { userOwnsProject } from "@/lib/project-access";
 import { dateString } from "@/lib/project-input";
 import { krError, prepLeadDaysSchema, taskRuleError, TASK_STATUSES } from "@/lib/task-input";
 import { getTaskView } from "@/lib/task-view";
+import { scheduleEconomySync } from "@/lib/economy-db";
 
 const patchTaskSchema = z.object({
   title: z.string().min(1).optional(),
@@ -23,6 +24,8 @@ const patchTaskSchema = z.object({
   isMilestone: z.boolean().optional(),
   notifyDeadline: z.boolean().optional(),
   prepLeadDays: prepLeadDaysSchema.nullable().optional(),
+  // Giờ thực tế (phút) nhập khi đóng việc: chỉ làm hao Thể lực trong kinh tế, không đổi thưởng.
+  actualMinutes: z.number().int().min(0).max(14400).nullable().optional(),
 });
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -89,6 +92,8 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
     });
   }
 
+  // Việc đã/đang DONE đổi bất kỳ trường nào (trạng thái, hạn, giờ thực tế…) đều có thể đổi sự kiện kinh tế.
+  if (existing.status === "DONE" || updated.status === "DONE") scheduleEconomySync(userId);
   return NextResponse.json(await getTaskView(updated.id));
 });
 
@@ -101,5 +106,6 @@ export const DELETE = withAuth(async (_req, userId, { params }: RouteParams) => 
   if (!deleted) {
     return NextResponse.json({ error: "task not found" }, { status: 404 });
   }
+  if (deleted.status === "DONE") scheduleEconomySync(userId);
   return NextResponse.json({ ok: true });
 });

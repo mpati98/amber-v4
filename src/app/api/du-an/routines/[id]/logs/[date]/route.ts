@@ -8,6 +8,7 @@ import { isoWeekday } from "@/lib/routine-stats";
 import { dateString } from "@/lib/project-input";
 import { toExerciseRows, workoutLogSchema } from "@/lib/workout-input";
 import { vnToday } from "@/lib/vn-time";
+import { scheduleEconomySync } from "@/lib/economy-db";
 
 type RouteParams = { params: Promise<{ id: string; date: string }> };
 
@@ -60,6 +61,7 @@ export const PUT = withAuth(async (req, userId, { params }: RouteParams) => {
         await tx.insert(workoutExercises).values(toExerciseRows(log.id, parsed.data.exercises));
       }
     });
+    scheduleEconomySync(userId, { changedFrom: today });
     const [view] = await routineViews([routine], today);
     return NextResponse.json(view);
   }
@@ -81,6 +83,7 @@ export const DELETE = withAuth(async (_req, userId, { params }: RouteParams) => 
     return NextResponse.json({ error: parsedDate.error.flatten() }, { status: 400 });
   }
   await db.delete(routineLogs).where(and(eq(routineLogs.routineId, routine.id), eq(routineLogs.logDate, parsedDate.data)));
+  if (routine.kind === "WORKOUT") scheduleEconomySync(userId, { changedFrom: parsedDate.data });
   const [view] = await routineViews([routine], vnToday());
   return NextResponse.json(view);
 });

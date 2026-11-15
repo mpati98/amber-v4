@@ -8,6 +8,7 @@ import { badRequest, invalidBody, patchLogSchema, readJson } from "@/lib/study-i
 import { courseView, guardStudy, isUuid, notDeleted } from "@/lib/study-courses";
 import { applyDayRule, logViews, todaySummary, validateLogSections, writeLogSections } from "@/lib/study-logs";
 import { vnToday } from "@/lib/vn-time";
+import { scheduleEconomySync } from "@/lib/economy-db";
 
 type RouteParams = { params: Promise<{ id: string }> };
 const notFound = () => NextResponse.json({ error: "log_not_found" }, { status: 404 });
@@ -77,6 +78,7 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
     if (result.completed && log.courseId) {
       logActivity({ userId, source: "TRA_DINH", action: "study_course.completed", title: "Hoàn thành khóa học", metadata: { courseId: log.courseId, subjectId: subject.id } });
     }
+    if (d.minutes !== undefined) scheduleEconomySync(userId);
     return NextResponse.json({ log: result.log, today: result.today, course: result.course });
   });
 });
@@ -91,6 +93,7 @@ export const DELETE = withAuth(async (_req, userId, { params }: RouteParams) => 
   if (log.logDate !== today) return badRequest("not_today");
 
   await db.delete(studyLogs).where(eq(studyLogs.id, log.id));
+  scheduleEconomySync(userId);
   logActivity({ userId, source: "TRA_DINH", action: "study_log.deleted", title: `Xoá buổi học: ${subject.name}`, metadata: { logId: log.id, subjectId: subject.id } });
   return NextResponse.json({ ok: true, today: await todaySummary(db, subject, today) });
 });

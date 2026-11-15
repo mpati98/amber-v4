@@ -9,6 +9,7 @@ import { badRequest, createLogSchema, invalidBody, readJson } from "@/lib/study-
 import { courseView, findOwnedCourse, findOwnedSubject, guardStudy, isUuid, StudyError } from "@/lib/study-courses";
 import { applyDayRule, logViews, todaySummary, validateLogSections, writeLogSections } from "@/lib/study-logs";
 import { vnToday } from "@/lib/vn-time";
+import { scheduleEconomySync } from "@/lib/economy-db";
 
 const MAX_RANGE_DAYS = 400;
 const ACTIVITY_VERB = { LESSON: "Học", CARD_REVIEW: "Ôn thẻ", PRACTICE: "Luyện AI" } as const;
@@ -126,6 +127,7 @@ export const POST = withAuth(async (req, userId) => {
         ...(practiceSessionId ? { practiceSessionId } : {}),
       },
     });
+    scheduleEconomySync(userId);
     if (result.completed && course) {
       logActivity({ userId, source: "TRA_DINH", action: "study_course.completed", title: `Hoàn thành khóa học: ${course.title}`, metadata: { courseId: course.id, subjectId: subject.id } });
     }

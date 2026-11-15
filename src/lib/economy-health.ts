@@ -110,9 +110,11 @@ export function buildEconomyContext(series: HealthDay[], debuffs: DebuffSpan[], 
   return {
     day(date) {
       const row = byDate.get(date);
-      const healthPrev = row?.prev?.health ?? (row ? params.health.initial_base : series.at(-1)?.health ?? params.health.initial_base);
+      // Ngoài chuỗi: trước ngày đầu ⇒ nền khởi điểm; sau ngày cuối ⇒ Sức khoẻ ngày cuối.
+      const after = !row && series.length > 0 && date > series[series.length - 1].date;
+      const healthPrev = row ? row.prev?.health ?? params.health.initial_base : after ? series[series.length - 1].health : params.health.initial_base;
       const max = staminaMax(healthPrev, params.stamina);
-      const prevBase = row?.prev?.base ?? params.health.initial_base;
+      const prevBase = row ? row.prev?.base ?? params.health.initial_base : after ? series[series.length - 1].base : params.health.initial_base;
       const sleep = row?.h.sleepScore ?? prevBase;
       const ratio = Math.min(1, Math.max(params.stamina.morning_min_ratio, sleep / 100));
       return { healthPrev, staminaMax: round2(max), morningStamina: round2(max * ratio) };

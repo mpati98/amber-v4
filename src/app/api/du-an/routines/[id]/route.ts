@@ -7,6 +7,7 @@ import { withAuth } from "@/lib/withAuth";
 import { checkStudySubject, findOwnedRoutine, routineViews } from "@/lib/routines";
 import { routineKindSchema, weekdaysSchema } from "@/lib/routine-input";
 import { vnToday } from "@/lib/vn-time";
+import { scheduleEconomySync } from "@/lib/economy-db";
 
 const patchRoutineSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -59,5 +60,7 @@ export const DELETE = withAuth(async (_req, userId, { params }: RouteParams) => 
   const routine = await findOwnedRoutine(id, userId);
   if (!routine) return notFound();
   await db.delete(routines).where(eq(routines.id, routine.id));
+  // Xoá routine WORKOUT xoá luôn mọi buổi tập (cascade) ⇒ đối soát dựng lại từ buổi sớm nhất.
+  if (routine.kind === "WORKOUT") scheduleEconomySync(userId, { full: true });
   return NextResponse.json({ ok: true });
 });

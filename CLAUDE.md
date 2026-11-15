@@ -283,24 +283,32 @@ App Flutter nhúng cảnh 3D (iframe `/world/`) và đẩy dữ liệu vào bằ
 - **Migration 0017 đã áp production 15/11/2026** (xem "Triển khai production"); code lên production cùng ngày (`c8e189b`).
 - Kiểm thử: `npm test` (công thức, Open-Meteo, validate giấc ngủ), `npm run test:world` (tích hợp trên DEV, cần `npm run dev`; gọi Open-Meteo thật).
 
-## Kinh tế Âm Dương Giới (nhánh `feat/kinh-te`, migration `0018_kinh_te`, 15/11/2026)
+## Kinh tế Âm Dương Giới (nhánh `feat/kinh-te`, migration `0018_kinh_te` + `0019_kinh_te_bong`, 15/11/2026)
 
-Đặc tả + khảo sát + quyết định của chủ dự án: `../plan/amber-5-kinh-te-khao-sat.md`. **0018 mới áp Neon DEV, chưa áp production; chưa có route.**
+Đặc tả + khảo sát + quyết định của chủ dự án: `../plan/amber-5-kinh-te-khao-sat.md`. **0018 + 0019 chỉ áp Neon DEV, chưa áp production.**
 
-- **Sự kiện là nguồn sự thật** (`economy_events`, unique `(user_id, event_id)`, eventId có tiền tố nguồn: `amber-task:<id>:done`, `amber-task-occ:<id>:<ngày>:done`, `study-log:<id>`, `ats-task:<id>:done`…).
-  `ledger_entries` là **bản chiếu**: sự kiện về muộn ⇒ xoá entry từ `vn_date` đó trở đi rồi dựng lại với số dư mở đầu = tổng `amount` trước ngày đó. Task mở lại ⇒ xoá sự kiện (entry xoá theo FK ghép cascade), dựng lại — không có bút toán đảo.
-- Bộ thi hành (`lib/economy-engine.ts`, thuần): Nguyên Tệ = kết quả luật → × `manual_weight` (entry manual) → trần kiếm ngày (chỉ phần dương, ngày VN) → sàn nợ (phạt vượt sàn bị xoá).
-  Thể lực = thể lực sáng + entry trong ngày theo thứ tự thời gian, kẹp `[0, stamina_max]` sau mỗi entry. Biến trong biểu thức = trạng thái TRƯỚC sự kiện; `health` = Sức khoẻ chốt cuối ngày hôm trước.
-  `raw_amount` (kết quả luật) vs `amount` (phần thật sự áp) để nhật ký giải thích được vì sao bị cắt.
-- Luật là dữ liệu: `economy/rules.v1.yaml` (mặc định) → `lib/economy-rules.ts` (zod + biên dịch). Biểu thức qua `lib/economy-expr.ts`: parser riêng, **không eval**, kiểm kiểu lúc nạp
-  (tên biến/trường lạ, sai kiểu, `constructor`/`__proto__` đều bị từ chối). Thêm loại sự kiện ⇒ thêm vào `EVENT_FIELDS`. Bảng `rule_sets`: một bộ `active` / user (chỉ mục duy nhất một phần); amber-brain chỉ được tạo `proposed`.
-  Route đọc YAML lúc chạy trên Vercel cần `outputFileTracingIncludes` cho `economy/*.yaml` (hoặc nạp từ `rule_sets`).
-- Sức khoẻ / Thể lực: `lib/economy-health.ts` (hệ số nằm trong YAML mục `health`, `stamina`). Thiếu dữ liệu một thành phần ⇒ lấy nền hôm trước (trung tính, không phạt). Sẽ thay `sinhLuc` trong `world-stats.ts` (hiển thị "Sức khoẻ").
-- Task: `lib/economy-tasks.ts` — interface `TaskSource` (ats-app cắm vào ở giai đoạn 2), thưởng theo giờ ƯỚC LƯỢNG (`duration_minutes / 60`), giờ thực tế `tasks.actual_minutes` (mới) chỉ làm hao thể lực.
-  Đúng hạn: hạn kiểu ngày ⇒ trước 00:00 VN ngày hôm sau; hạn kiểu thời điểm ⇒ so UTC. Hoàn thành = `status_changed_at` khi DONE; task lặp theo `task_occurrences.completed_at`, hạn = ngày xảy ra.
-- Bảng khác của 0018: `check_ins` (trưa/tối; sáng dùng `sleep_logs`), `debuffs`, `reward_items`, `redemptions`, `exemption_cards` (`task_ref` có tiền tố nguồn, mỗi task tối đa một thẻ).
-- Kiểm: `npm test` (`economy-*.test.ts`, gồm tiêu chí nghiệm thu mục 13), `node scripts/economy-schema-check.mjs` (chỉ đọc).
-- Chưa làm: nạp sự kiện từ `tasks` / `study_logs` / `routine_logs` vào `economy_events` + hàm dựng lại có DB, route, cửa hàng, hiệu chỉnh thể lực theo check-in 13:00, mức hồi khi nghỉ.
+- **Sự kiện là nguồn sự thật** (`economy_events`, unique `(user_id, event_id)`). eventId ổn định theo id nguồn: `amber-task:<id>:done`, `amber-task-occ:<id>:<ngày>:done`, `study-log:<id>`,
+  `routine-log:<id>` (chỉ WORKOUT có phút); sau này `ats-task:<id>:done`, `redeem:<id>`, `buy-card:<id>`. Đối soát chỉ quản lý 4 tiền tố đầu (`MANAGED_PREFIXES`) — sự kiện cửa hàng không bao giờ bị đối soát xoá.
+- **`syncEconomy(userId, {changedFrom?, full?})`** (`lib/economy-db.ts`): một transaction + `pg_advisory_xact_lock` theo user. Tính sự kiện mong muốn từ `tasks` (DONE, hoàn thành = `status_changed_at`),
+  `task_occurrences`, `study_logs` (thời điểm = `created_at`), `routine_logs` WORKOUT (`created_at`; dòng cũ null ⇒ 21:30 VN của ngày tập) → diff với `economy_events` → upsert/xoá →
+  dựng lại `ledger_entries` từ ngày VN sớm nhất bị ảnh hưởng (bản cũ hoặc bản mới; `changedFrom` cho giấc ngủ; bộ luật đổi version ⇒ dựng từ đầu). Không đổi gì ⇒ không dựng.
+  Task mở lại / xoá ⇒ sự kiện biến mất, entry xoá theo FK ghép cascade — không có bút toán đảo. User không còn ⇒ bỏ qua.
+- **Hook**: `scheduleEconomySync` (chạy bằng `after()` sau response, lỗi không làm hỏng thao tác ghi; 23503 = user bị xoá giữa chừng, bỏ qua) ở POST/PATCH/DELETE `/api/tasks`, POST/PATCH/DELETE
+  `/api/tra-dinh/hoc-tap/logs`, PUT/DELETE `/api/du-an/routines/[id]/logs/[date]`, DELETE `/api/du-an/routines/[id]` (WORKOUT ⇒ full), PUT/DELETE `/api/du-an/sleep`.
+  Thay đổi không qua hook (xoá dự án / môn kéo theo dữ liệu) được bắt ở lần GET kinh tế kế tiếp (GET luôn đối soát trước).
+- **Route** (dưới `/api/kieu-lau` nên không sửa `proxy.ts` / CORS): `GET /api/kieu-lau/kinh-te?limit=1–200&shadow=0|1` → `{today, rulesVersion, balance, stamina {value, max},
+  health {value, base, prevDay}, shadow {active, penaltiesLiveFrom, balanceIfLive, hiddenPenalties {count, total}}, entries[] (mới trước: eventId, eventType, ruleId, key, rawAmount, amount, shadow, source, occurredAt, vnDate), sync}`.
+  Mặc định ẩn entry phạt bóng; `shadow=1` để chỉnh hệ số. `POST /api/kieu-lau/kinh-te/rebuild` dựng lại toàn bộ. `PATCH/POST /api/tasks` nhận `actualMinutes` (0–14400, null được).
+- **Chế độ bóng** (`penalties_live_from` trong YAML, mặc định `null`): phạt Nguyên Tệ (entry âm, trừ sự kiện chi tiêu `SPEND_EVENT_TYPES`) được tính, ghi `raw_amount`, `shadow = true`, `amount = 0`.
+  Bật phạt: đặt ngày ⇒ phạt từ ngày đó mới trừ, phạt cũ vẫn bóng. `balanceIfLive` = replay toàn bộ với mọi phạt bật (tính lúc đọc, không lưu).
+- Bộ thi hành (`lib/economy-engine.ts`, thuần): Nguyên Tệ = kết quả luật → × `manual_weight` (**chỉ Nguyên Tệ** của sự kiện manual; thể lực hao đủ) → trần kiếm ngày → sàn nợ.
+  Thể lực = thể lực sáng + entry trong ngày theo thứ tự thời gian, kẹp `[0, stamina_max]` sau mỗi entry. Biến = trạng thái TRƯỚC sự kiện; `health` = Sức khoẻ chốt cuối ngày hôm trước.
+- Luật là dữ liệu: `economy/rules.v1.yaml` → `lib/economy-rules.ts` (zod + biên dịch), biểu thức qua `lib/economy-expr.ts` (parser riêng, **không eval**, kiểm kiểu lúc nạp). Bảng `rule_sets`: user chưa có ⇒ lần đồng bộ đầu cài
+  YAML mặc định làm `active` (sửa file YAML sau đó KHÔNG tự áp cho user đã có bộ luật — phải đổi `rule_sets`). amber-brain chỉ được tạo `proposed`. `next.config.ts` kèm `economy/**/*.yaml` vào bundle (`outputFileTracingIncludes`).
+- Sức khoẻ (`lib/economy-health.ts`): ngủ từ `sleep_logs`; vận động = check-in tối nếu có, không thì tổng phút WORKOUT của ngày; debuff từ `debuffs`. Thiếu thành phần ⇒ nền hôm trước (trung tính). Sẽ thay `sinhLuc` của `world-stats.ts`.
+- Cửa hàng (`lib/economy-shop.ts`): `purchaseRefusal` — chỉ mua khi số dư ≥ giá (đang nợ không mua được). Route cửa hàng chưa làm.
+- Kiểm: `npm test` (`economy-*.test.ts`), `npx tsx scripts/economy-e2e.ts` (DEV, cần `npm run dev`; đối soát, sửa/xoá quá khứ, idempotent, dựng toàn bộ = dựng dần, bóng, route, hook, cô lập user), `node scripts/economy-schema-check.mjs` (chỉ đọc).
+- Chưa làm: route check-in / debuff, cửa hàng + thẻ miễn phạt, hồi thể lực khi nghỉ, hiệu chỉnh theo tự chấm 13:00, thay Sinh lực trên màn 3D, UI.
 
 ## Việc còn treo (chưa quyết)
 

@@ -176,6 +176,8 @@ export const routineLogs = pgTable(
       .references(() => routines.id, { onDelete: "cascade" }),
     logDate: date("log_date").notNull(),
     durationMinutes: integer("duration_minutes"),
+    // Lúc ghi (migration 0019) — để kinh tế xếp buổi tập đúng giờ trong ngày. Dòng cũ null (sổ cái coi như 21:30 VN).
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [uniqueIndex("routine_logs_routine_id_log_date_key").on(table.routineId, table.logDate)]
 );
@@ -824,6 +826,8 @@ export const ledgerEntries = pgTable(
     // raw_amount = kết quả luật (sau hệ số manual); amount = phần thật sự áp sau trần ngày / sàn nợ / kẹp thể lực.
     rawAmount: numeric("raw_amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
     amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
+    // Phạt ở chế độ bóng: amount = 0, raw_amount = mức phạt lẽ ra (migration 0019).
+    shadow: boolean("shadow").notNull().default(false),
     source: varchar("source", { length: 16 }).notNull(),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     vnDate: date("vn_date").notNull(),

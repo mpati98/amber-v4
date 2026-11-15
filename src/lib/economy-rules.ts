@@ -25,6 +25,9 @@ export const EVENT_FIELDS: Record<string, Record<string, ExprType>> = {
   buy_card: { price: "number" },
 };
 
+/** Sự kiện chi tiêu: entry âm của chúng là tiền đã tiêu, KHÔNG phải phạt (không bị chế độ bóng giữ lại). */
+export const SPEND_EVENT_TYPES: ReadonlySet<string> = new Set(["redeem", "buy_card"]);
+
 const ruleYaml = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_]*$/, "id chỉ gồm chữ thường, số, gạch dưới"),
   event: z.string(),
@@ -36,6 +39,9 @@ const num = (d: number) => z.number().finite().default(d);
 
 const ruleSetYaml = z.object({
   version: z.number().int().positive(),
+  // Chế độ bóng: null ⇒ mọi phạt Nguyên Tệ chỉ được ghi lại, không trừ. Đặt ngày "YYYY-MM-DD" ⇒ phạt của sự kiện
+  // từ ngày đó trở đi mới trừ thật; phạt trước đó giữ nguyên là bóng (bật phạt không đổ dồn phạt cũ).
+  penalties_live_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
   caps: z
     .object({
       nguyen_te_per_day: num(100).pipe(z.number().nonnegative()),

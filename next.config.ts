@@ -19,6 +19,8 @@ const publicCorsHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Bộ luật kinh tế mặc định đọc bằng fs lúc chạy (lib/economy-db.ts) — phải kèm vào bundle của function.
+  outputFileTracingIncludes: { "/api/**/*": ["./economy/**/*.yaml"] },
   // CORS chỉ cho API mà app Flutter gọi (cross-origin bằng Bearer token):
   // /api/mobile/* và các API dùng chung web + Flutter: Kiều Lâu, Tàng Kinh Các,
   // Nghị Sự Đường (projects, tasks, du-an, finance, learn), Trà Đình, hồ sơ user, nhạc.

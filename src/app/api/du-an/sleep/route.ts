@@ -6,6 +6,7 @@ import { withAuth } from "@/lib/withAuth";
 import { vnToday } from "@/lib/vn-time";
 import { addDays } from "@/lib/world-summary";
 import { sleepDateError, sleepJson, sleepLogSchema } from "@/lib/sleep-input";
+import { scheduleEconomySync } from "@/lib/economy-db";
 
 // Giấc ngủ tự ghi mỗi sáng (chỉ số Sinh lực). `date` = ngày thức dậy theo lịch VN.
 // GET ?days=14 (1–90): các đêm gần nhất, mới trước, kèm `today`.
@@ -33,5 +34,7 @@ export const PUT = withAuth(async (req, userId) => {
   const [row] = await db.insert(sleepLogs).values({ userId, date, ...values })
     .onConflictDoUpdate({ target: [sleepLogs.userId, sleepLogs.date], set: values })
     .returning();
+  // Giấc ngủ đổi Sức khoẻ / thể lực sáng của ngày đó ⇒ sổ cái dựng lại từ ngày đó.
+  scheduleEconomySync(userId, { changedFrom: date });
   return NextResponse.json({ log: sleepJson(row) });
 });

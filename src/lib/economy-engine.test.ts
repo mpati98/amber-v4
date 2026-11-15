@@ -6,9 +6,12 @@ import path from "node:path";
 import { ledgerBalance, mergeEvents, replay, staminaOn, type EconomyEvent } from "./economy-engine";
 import { loadRuleSet, RuleSetError } from "./economy-rules";
 import { buildEconomyContext, buildHealthSeries, sleepScore, type EconomyContext, type HealthDayInput } from "./economy-health";
+import { purchaseRefusal } from "./economy-shop";
 import { amberOccurrenceToSource, amberTaskToSource, isOnTime, taskToEvent } from "./economy-tasks";
 
-const RULES_TEXT = fs.readFileSync(path.join(process.cwd(), "economy/rules.v1.yaml"), "utf8");
+const DEFAULT_TEXT = fs.readFileSync(path.join(process.cwd(), "economy/rules.v1.yaml"), "utf8");
+// Phần lớn test kiểm luật phạt ⇒ dùng bản đã bật phạt; chế độ bóng (mặc định) có test riêng.
+const RULES_TEXT = DEFAULT_TEXT.replace("penalties_live_from: null", 'penalties_live_from: "2000-01-01"');
 const rules = loadRuleSet(RULES_TEXT);
 
 /** Ngữ cảnh cố định: Sức khoẻ hôm trước 80 ⇒ max 92, sáng đầy pin. */
@@ -141,10 +144,13 @@ test("[13] trễ hạn khi có debuff / thể lực < 40 / có thẻ: không tr�
   assert.equal(nt(replay([ev], rules, flatCtx({ morning: 40 })), ev.eventId), -4);
 });
 
-test("[13] entry manual nhân manual_weight, TRƯỚC trần ngày rồi mới tới sàn nợ", () => {
+test("[13] entry manual nhân manual_weight (chỉ Nguyên Tệ, thể lực hao đủ), TRƯỚC trần ngày rồi mới tới sàn nợ", () => {
   const ev = study("2026-11-11", 60, { manual: true });
   const r = replay([ev], rules, flatCtx());
-  assert.deepEqual(r.entries.map((x) => [x.key, x.rawAmount, x.amount]), [["nguyen_te", 5, 5], ["stamina", -1.5, -1.5]]);
+  assert.deepEqual(r.entries.map((x) => [x.key, x.rawAmount, x.amount]), [["nguyen_te", 5, 5], ["stamina", -3, -3]]);
+  // Phạt từ dữ liệu manual cũng chỉ còn một nửa
+  const late = { ...task("2026-11-11", { onTime: false, est: 4 }), source: "manual" as const };
+  assert.deepEqual(replay([late], rules, flatCtx()).entries.map((x) => [x.key, x.amount]), [["nguyen_te", -4], ["stamina", -24]]);
   // Đã kiếm 95 trong ngày: manual 10 × 0.5 = 5 vừa khít trần; nếu cắt trần trước rồi mới nhân thì chỉ còn 2.5
   const fill = Array.from({ length: 9 }, (_, i) => study("2026-11-12", 60, { min: i }));
   const top = study("2026-11-12", 30, { min: 20 }); // +5 ⇒ 95
@@ -266,4 +272,47 @@ test("Sức khoẻ: điểm ngủ, làm mượt, debuff trừ thẳng, thiếu d
   assert.equal(d3.morningStamina, 91.6); // điểm ngủ 100
   assert.equal(ctx.debuffActive(new Date("2026-11-03T06:00:00Z")), true);
   assert.equal(ctx.debuffActive(new Date("2026-11-03T04:00:00Z")), false);
+});
+
+test("chế độ bóng (mặc định): phạt ghi lại nhưng không trừ; thưởng, chi tiêu, thể lực vẫn áp", () => {
+  const shadowRules = loadRuleSet(DEFAULT_TEXT);
+  assert.equal(shadowRules.penalties_live_from, null);
+  const late = task("2026-11-20", { onTime: false, est: 3, hours: 2 });
+  const evs: EconomyEvent[] = [
+    study("2026-11-20", 60),
+    late,
+    { eventId: "redeem:r2", type: "redeem", source: "auto", occurredAt: at("2026-11-20", 900), data: { price: 4 } },
+  ];
+  const r = replay(evs, shadowRules, flatCtx());
+  const pen = r.entries.find((x) => x.eventId === late.eventId && x.key === "nguyen_te")!;
+  assert.deepEqual([pen.ruleId, pen.rawAmount, pen.amount, pen.shadow], ["task_late", -6, 0, true]);
+  assert.equal(r.entries.find((x) => x.eventId === late.eventId && x.key === "stamina")!.amount, -12);
+  assert.ok(r.entries.filter((x) => x !== pen).every((x) => !x.shadow));
+  assert.equal(r.balance, 10 - 4);
+  // "Số dư nếu đã bật phạt" để chỉnh hệ số
+  assert.equal(replay(evs, shadowRules, flatCtx(), 0, { allPenaltiesLive: true }).balance, 10 - 6 - 4);
+
+  // Bật phạt từ một ngày: phạt cũ vẫn là bóng, phạt từ ngày đó trừ thật
+  const liveFrom = loadRuleSet(DEFAULT_TEXT.replace("penalties_live_from: null", 'penalties_live_from: "2026-11-21"'));
+  const late2 = task("2026-11-21", { onTime: false, est: 3 });
+  const r2 = replay([late, late2], liveFrom, flatCtx());
+  assert.equal(nt(r2, late.eventId), 0);
+  assert.equal(nt(r2, late2.eventId), -6);
+});
+
+test("cửa hàng: chỉ mua khi số dư ≥ giá", () => {
+  assert.equal(purchaseRefusal(10, 10), null);
+  assert.equal(purchaseRefusal(9.99, 10), "insufficient_balance");
+  assert.equal(purchaseRefusal(-50, 1), "insufficient_balance");
+  assert.equal(purchaseRefusal(100, 0), "invalid_price");
+  assert.equal(purchaseRefusal(100, -5), "invalid_price");
+});
+
+test("ngữ cảnh ngoài chuỗi Sức khoẻ: trước ngày đầu ⇒ nền khởi điểm, sau ngày cuối ⇒ ngày cuối", () => {
+  const p = rules.health;
+  const s = buildHealthSeries("2026-11-10", "2026-11-11", new Map([["2026-11-10", { sleepMinutes: 180, sleepQuality: 1, exerciseMinutes: 0, sportMinutes: 0, restDay: false }]]), [], p);
+  const ctx = buildEconomyContext(s, [], rules);
+  assert.equal(ctx.day("2026-11-01").healthPrev, 70);
+  assert.equal(ctx.day("2026-11-30").healthPrev, s[1].health);
+  assert.ok(s[1].health < 70);
 });

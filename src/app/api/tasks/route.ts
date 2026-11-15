@@ -9,6 +9,7 @@ import { dateString } from "@/lib/project-input";
 import { krError, prepLeadDaysSchema, taskRuleError, TASK_STATUSES } from "@/lib/task-input";
 import { checklistWith, getTaskView, withAttention } from "@/lib/task-view";
 import { vnToday } from "@/lib/vn-time";
+import { scheduleEconomySync } from "@/lib/economy-db";
 
 const createTaskSchema = z.object({
   projectId: z.string().uuid().optional(),
@@ -19,6 +20,8 @@ const createTaskSchema = z.object({
   importance: z.number().int().min(1).max(3).default(2),
   urgency: z.number().int().min(1).max(3).default(2),
   durationMinutes: z.number().int().min(5).default(15),
+  // Giờ thực tế (phút) nhập khi đóng việc: chỉ làm hao Thể lực trong kinh tế, không đổi thưởng.
+  actualMinutes: z.number().int().min(0).max(14400).nullable().optional(),
   startDate: dateString.optional(),
   dueDate: dateString.optional(),
   isMilestone: z.boolean().default(false),
@@ -80,5 +83,6 @@ export const POST = withAuth(async (req, userId) => {
     title: created.title,
   });
 
+  if (created.status === "DONE") scheduleEconomySync(userId);
   return NextResponse.json(await getTaskView(created.id), { status: 201 });
 });
