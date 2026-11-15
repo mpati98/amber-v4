@@ -3,7 +3,7 @@ import { and, desc, eq, gte, isNull, or } from "drizzle-orm";
 import { db } from "@/db";
 import { debuffs } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
-import { debuffChangedFrom, debuffCreateSchema, debuffJson, debuffTimeError } from "@/lib/health-input";
+import { clampClockSkew, debuffChangedFrom, debuffCreateSchema, debuffJson, debuffTimeError } from "@/lib/health-input";
 import { scheduleEconomySync } from "@/lib/economy-db";
 
 // Debuff (bệnh / trạng thái xấu): trừ thẳng Sức khoẻ và miễn phạt trễ hạn khi còn hiệu lực; chỉ nới luật, không phạt thêm.
@@ -26,7 +26,7 @@ export const POST = withAuth(async (req, userId) => {
   const parsed = debuffCreateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const now = new Date();
-  const startedAt = parsed.data.startedAt ? new Date(parsed.data.startedAt) : now;
+  const startedAt = parsed.data.startedAt ? clampClockSkew(new Date(parsed.data.startedAt), now) : now;
   const timeErr = debuffTimeError(startedAt, null, now);
   if (timeErr) return NextResponse.json({ error: timeErr }, { status: 400 });
   const [row] = await db

@@ -1,7 +1,7 @@
 // Test validate check-in + debuff — chạy: npm test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkInSchema, checkInValues, debuffChangedFrom, debuffCreateSchema, debuffPatchSchema, debuffTimeError } from "./health-input";
+import { checkInSchema, checkInValues, clampClockSkew, debuffChangedFrom, debuffCreateSchema, debuffPatchSchema, debuffTimeError } from "./health-input";
 
 test("check-in: mỗi mốc chỉ nhận trường của nó", () => {
   assert.ok(checkInSchema.safeParse({ date: "2026-11-15", slot: "noon", staminaSelf: 3 }).success);
@@ -39,6 +39,15 @@ test("debuff: mốc thời gian", () => {
   assert.equal(debuffTimeError(new Date("2026-09-01T00:00:00Z"), null, now), "too_old");
   assert.equal(debuffTimeError(new Date("2026-11-15T09:00:00Z"), new Date("2026-11-15T08:00:00Z"), now), "ended_before_started");
   assert.equal(debuffTimeError(new Date("2026-11-15T09:00:00Z"), new Date("2026-11-15T12:00:00Z"), now), "future_end");
+});
+
+test("đồng hồ máy lệch ≤ 5 phút về tương lai ⇒ coi là bây giờ của server", () => {
+  const now = new Date("2026-11-15T10:00:00Z");
+  assert.equal(clampClockSkew(new Date("2026-11-15T10:04:59Z"), now), now);
+  const far = new Date("2026-11-15T10:05:01Z");
+  assert.equal(clampClockSkew(far, now), far);
+  const past = new Date("2026-11-15T09:00:00Z");
+  assert.equal(clampClockSkew(past, now), past);
 });
 
 test("debuff: ngày dựng lại = mốc sớm nhất theo giờ VN", () => {

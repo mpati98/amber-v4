@@ -80,6 +80,14 @@ export function debuffTimeError(startedAt: Date, endedAt: Date | null, now: Date
   return null;
 }
 
+const MAX_SKEW_MS = 5 * 60_000;
+
+/** App gửi "bây giờ" theo đồng hồ máy: lệch tới 5 phút về tương lai thì coi là bây giờ của server (không báo future_*). */
+export function clampClockSkew(at: Date, now: Date): Date {
+  const ahead = at.getTime() - now.getTime();
+  return ahead > 0 && ahead <= MAX_SKEW_MS ? now : at;
+}
+
 /** Ngày VN sớm nhất mà sổ cái phải dựng lại khi debuff đổi (mọi mốc cũ + mới). */
 export function debuffChangedFrom(...times: Array<Date | null | undefined>): string {
   const ms = times.filter((t): t is Date => t instanceof Date).map((t) => t.getTime());

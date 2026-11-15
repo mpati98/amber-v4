@@ -315,7 +315,8 @@ App Flutter nhúng cảnh 3D (iframe `/world/`) và đẩy dữ liệu vào bằ
 - **Check-in** (`/api/du-an/check-ins`, `lib/health-input.ts`): `GET ?days=14`, `PUT {date, slot: "noon", staminaSelf 1–5}` | `{date, slot: "evening", exerciseMinutes?, sportMinutes?, restDay?}` (mỗi mốc chỉ nhận trường của nó,
   ghi lại = thay cả mốc; 60 ngày trước tới hôm nay), `DELETE /[date]/[slot]` (404 `checkin_not_found`). Chỉ mốc tối là đầu vào Sức khoẻ (hook `changedFrom` = ngày đó); `staminaSelf` lưu lại, chưa dùng.
 - **Debuff** (`/api/du-an/debuffs`): `GET ?days=30` (còn hiệu lực + bắt đầu trong N ngày), `POST {level: light|medium|heavy, label?, startedAt? ISO}` → 201, `PATCH /[id] {level?, label?, endedAt? ISO | null}`,
-  `DELETE /[id]` (404 `debuff_not_found`). Lỗi giờ: `future_start`, `too_old` (> 60 ngày, chỉ khi tạo), `ended_before_started`, `future_end`. Hook dựng lại từ mốc sớm nhất bị ảnh hưởng (`debuffChangedFrom`).
+  `DELETE /[id]` (404 `debuff_not_found`). Lỗi giờ: `future_start`, `too_old` (> 60 ngày, chỉ khi tạo), `ended_before_started`, `future_end`; `startedAt` / `endedAt` lệch ≤ 5 phút về tương lai
+  (đồng hồ máy của app) được kẹp về giờ server (`clampClockSkew`). Hook dựng lại từ mốc sớm nhất bị ảnh hưởng (`debuffChangedFrom`).
 - Buổi tập: thời điểm = `created_at` CHỈ khi rơi đúng ngày tập (giờ VN); khác ngày (ghi bù, nhập thẳng DB) hoặc null ⇒ 21:30 VN của ngày tập.
 - Nhật ký luật màn chủ: `lib/economy-log.ts` (`buildLogLines` gộp theo (sự kiện, luật), `RULE_LABEL`, tên việc / môn / routine tra theo eventId).
 - Chưa làm: cửa hàng + thẻ miễn phạt (sau chế độ bóng), hồi thể lực khi nghỉ, hiệu chỉnh theo tự chấm 13:00, màn nhập check-in / debuff ở Flutter.

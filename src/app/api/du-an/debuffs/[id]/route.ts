@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { debuffs } from "@/db/schema";
 import { withAuth } from "@/lib/withAuth";
-import { debuffChangedFrom, debuffJson, debuffPatchSchema, debuffTimeError } from "@/lib/health-input";
+import { clampClockSkew, debuffChangedFrom, debuffJson, debuffPatchSchema, debuffTimeError } from "@/lib/health-input";
 import { scheduleEconomySync } from "@/lib/economy-db";
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -26,7 +26,7 @@ export const PATCH = withAuth(async (req, userId, { params }: RouteParams) => {
   const parsed = debuffPatchSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const now = new Date();
-  const endedAt = parsed.data.endedAt === undefined ? existing.endedAt : parsed.data.endedAt === null ? null : new Date(parsed.data.endedAt);
+  const endedAt = parsed.data.endedAt === undefined ? existing.endedAt : parsed.data.endedAt === null ? null : clampClockSkew(new Date(parsed.data.endedAt), now);
   // Debuff cũ (> 60 ngày) vẫn được đánh dấu hết: chỉ kiểm thứ tự / tương lai của endedAt.
   const timeErr = debuffTimeError(existing.startedAt, endedAt, now);
   if (timeErr && timeErr !== "too_old") return NextResponse.json({ error: timeErr }, { status: 400 });

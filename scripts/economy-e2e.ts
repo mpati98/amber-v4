@@ -192,6 +192,10 @@ async function main() {
     const dl = await call(A, "GET", "/du-an/debuffs");
     check("GET debuff", dl.s === 200 && dl.j.debuffs.length === 1, dl.j);
     check("B không sửa / xoá được debuff của A", (await call(B, "PATCH", `/du-an/debuffs/${did}`, { endedAt: null })).s === 404 && (await call(B, "DELETE", `/du-an/debuffs/${did}`)).s === 404);
+    // Đồng hồ máy nhanh 1 phút: "Đã khỏi" gửi giờ máy ⇒ server coi là bây giờ, không báo future_end
+    await call(A, "PATCH", `/du-an/debuffs/${did}`, { endedAt: null });
+    const skew = await call(A, "PATCH", `/du-an/debuffs/${did}`, { endedAt: new Date(Date.now() + 60_000).toISOString() });
+    check("endedAt lệch +1 phút được chấp nhận (kẹp về bây giờ)", skew.s === 200 && skew.j.debuff.active === false && Date.parse(skew.j.debuff.endedAt) <= Date.now(), skew);
     check("DELETE debuff", (await call(A, "DELETE", `/du-an/debuffs/${did}`)).s === 200);
     check("DELETE lại → 404", (await call(A, "DELETE", `/du-an/debuffs/${did}`)).j?.error === "debuff_not_found");
 
