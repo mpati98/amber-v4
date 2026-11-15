@@ -22,8 +22,11 @@ test("buổi tập → exercise.logged; không phút ⇒ không sự kiện; dò
   const old = routineLogToEvent({ id: "r1", logDate: "2026-11-15", durationMinutes: 40, createdAt: null })!;
   assert.equal(old.occurredAt.toISOString(), "2026-11-15T14:30:00.000Z");
   assert.equal(old.eventId, "routine-log:r1");
-  const at = new Date("2026-11-15T23:00:00Z");
+  const at = new Date("2026-11-15T23:00:00Z"); // 06:00 VN ngày 16
   assert.equal(routineLogToEvent({ id: "r2", logDate: "2026-11-16", durationMinutes: 40, createdAt: at })!.occurredAt, at);
+  // Ghi bù / nhập thẳng: created_at khác ngày tập ⇒ 21:30 VN của ngày tập, không tính vào ngày ghi
+  const late = routineLogToEvent({ id: "r3", logDate: "2026-11-10", durationMinutes: 40, createdAt: new Date("2026-11-15T03:00:00Z") })!;
+  assert.equal(late.occurredAt.toISOString(), "2026-11-10T14:30:00.000Z");
 });
 
 test("tiền tố được đối soát quản lý; sự kiện cửa hàng không bao giờ bị đối soát xoá", () => {

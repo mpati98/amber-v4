@@ -6,34 +6,17 @@ export type WorldStatKey = "sinhLuc" | "nganKho" | "triThuc" | "kyNang" | "heTho
 
 const clamp = (v: number) => Math.max(0, Math.min(100, Math.round(v)));
 
-/** Giấc ngủ: 7–9 giờ = 100; ít hơn giảm tuyến tính về 0 ở 3 giờ; quá 9 giờ trừ nhẹ (tối đa −30 ở 12 giờ). Chất lượng 1–5 nhân 0,6–1,0. */
-export function sleepScore(minutes: number, quality: number | null = null): number {
-  const h = minutes / 60;
-  let s = h >= 7 && h <= 9 ? 100 : h < 7 ? ((h - 3) / 4) * 100 : 100 - Math.min(30, ((h - 9) / 3) * 30);
-  if (quality != null) s *= 0.5 + quality * 0.1;
-  return clamp(s);
-}
-
-/** Vận động: tổng phút buổi tập 7 ngày gần nhất so với 150 phút/tuần (khuyến nghị WHO). */
-export function workoutScore(minutes7d: number): number {
-  return clamp((minutes7d / 150) * 100);
-}
-
-/** Đêm mẫu dùng khi chưa ghi giấc ngủ 3 ngày gần nhất (chủ dự án: "dữ liệu để sample"). */
-export const SAMPLE_SLEEP = { minutes: 7 * 60, quality: 3 } as const;
-
-export function sinhLuc(input: {
-  lastSleep: { date: string; minutes: number; quality: number | null } | null;
-  today: string;
-  workoutMinutes7d: number;
-}): WorldStat {
-  const daysAgo = input.lastSleep ? daysBetween(input.lastSleep.date, input.today) : Infinity;
-  const fresh = input.lastSleep && daysAgo <= 2 ? input.lastSleep : null;
-  const sleep = fresh ?? SAMPLE_SLEEP;
-  const v = clamp(0.6 * sleepScore(sleep.minutes, sleep.quality) + 0.4 * workoutScore(input.workoutMinutes7d));
-  const h = (sleep.minutes / 60).toFixed(1).replace(".", ",");
-  const sleepTxt = fresh ? `ngủ ${h} giờ${daysAgo === 0 ? " đêm qua" : ` (${daysAgo} ngày trước)`}` : "giấc ngủ: mẫu, chưa ghi";
-  return { v, src: `${sleepTxt} · vận động ${input.workoutMinutes7d} phút/7 ngày`, ...(fresh ? {} : { sample: true }) };
+/**
+ * Sức khoẻ (ô `sinhLuc` — giữ khoá cũ cho client đã deploy; tên hiển thị "Sức khoẻ"): lấy từ kinh tế (lib/economy-health.ts,
+ * hệ số trong bộ luật). 3 ngày không có dữ liệu ngủ / vận động ⇒ đang là giá trị trung tính, đánh dấu `sample`.
+ */
+export function sucKhoe(h: { value: number; base: number; recentDays: number }): WorldStat {
+  const v = clamp(h.value);
+  const debuff = Math.round(h.base - h.value);
+  const parts = [`Ngủ, vận động · nền ${Math.round(h.base)}`];
+  if (debuff > 0) parts.push(`debuff −${debuff}`);
+  if (h.recentDays === 0) return { v, src: "Chưa ghi ngủ / vận động 3 ngày: giá trị trung tính", sample: true };
+  return { v, src: parts.join(" · ") };
 }
 
 /** Ngân khố: phần ngân sách tháng còn lại (chỉ tính các danh mục có ngân sách). Chưa đặt ngân sách → null. */

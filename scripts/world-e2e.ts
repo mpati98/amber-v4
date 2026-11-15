@@ -58,13 +58,19 @@ async function main() {
     await db.insert(skillScores).values([{ userId: a.id, skill: "GRAMMAR", score: 60 }, { userId: a.id, skill: "READING", score: 80 }, { userId: a.id, skill: "WRITING", score: null }]);
     const w = await call(A, "GET", "/kieu-lau/world");
     check("world: đủ 5 chỉ số", w.s === 200 && ["sinhLuc", "nganKho", "triThuc", "kyNang", "heThong"].every((k) => k in w.j.stats), w);
-    // ngủ 8 giờ chất lượng 5 → 100; vận động 75 phút/7 ngày (bỏ buổi 8 ngày trước) → 50; 0,6·100 + 0,4·50 = 80
-    check("sinhLuc dùng giấc ngủ thật + vận động 7 ngày", w.j.stats.sinhLuc.v === 80 && !w.j.stats.sinhLuc.sample && /75 phút/.test(w.j.stats.sinhLuc.src), w.j.stats.sinhLuc);
+    // Ô sinhLuc = Sức khoẻ của kinh tế (15/11/2026). Nền 70; ngày −8: tập 99' (100), ngủ trung tính ⇒ 74,5; ngày −3: tập 30' ⇒ 78,325;
+    // hôm nay: ngủ 8 giờ chất lượng 5 (100) + tập 45' (100) ⇒ 0,7·78,325 + 0,3·100 = 84,83 → 85
+    check("sinhLuc = Sức khoẻ kinh tế", w.j.stats.sinhLuc.v === 85 && !w.j.stats.sinhLuc.sample && /nền 85/.test(w.j.stats.sinhLuc.src), w.j.stats.sinhLuc);
+    // Thể lực sáng đầy pin (ngủ 100; max = 60 + 0,4 · 78,33) trừ buổi tập hôm nay 45' / 30 = 1,5; buổi cũ hao thể lực ở ngày của nó
+    const e = w.j.economy;
+    check("economy: thể lực, Nguyên Tệ 0, chế độ bóng",
+      !!e && e.stamina.max === 91.33 && e.stamina.v === 89.83 && e.nguyenTe.balance === 0 && e.nguyenTe.dailyCap === 100 && e.shadow === true, e);
+    check("economy: nhật ký luật có tên routine, mới trước", e?.log.length === 3 && e.log[0].text === "Tập luyện: Tập" && e.log[0].stamina === -1.5, e?.log);
     check("kyNang = trung bình điểm có giá trị", w.j.stats.kyNang.v === 70, w.j.stats.kyNang);
     check("heThong null khi brain chưa gửi gì", w.j.stats.heThong.v === null, w.j.stats.heThong);
     check("nganKho null khi chưa có tháng tài chính", w.j.stats.nganKho.v === null, w.j.stats.nganKho);
     const wb = await call(B, "GET", "/kieu-lau/world");
-    check("B: sinhLuc dùng đêm mẫu", wb.j.stats.sinhLuc.sample === true && wb.j.stats.kyNang.v === null, wb.j.stats);
+    check("B: Sức khoẻ trung tính (sample, 70)", wb.j.stats.sinhLuc.sample === true && wb.j.stats.sinhLuc.v === 70 && wb.j.stats.kyNang.v === null, wb.j.stats);
 
     // ---- Sự kiện + con trỏ ----
     check("chưa có hoạt động: events rỗng, cursor null", w.j.events.length === 0 && w.j.cursor === null, w.j);

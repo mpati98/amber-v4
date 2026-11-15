@@ -191,35 +191,68 @@ async function lockUser(tx: Tx, userId: string) {
  * `full`: dựng lại toàn bộ lịch sử (vd sau khi đổi luật).
  */
 export async function syncEconomy(userId: string, opts: { changedFrom?: string | null; full?: boolean } = {}): Promise<SyncResult> {
-  return db.transaction(async (tx) => {
-    await lockUser(tx, userId);
-    // User đã bị xoá (vd hook chạy sau khi xoá tài khoản) ⇒ không có gì để đồng bộ.
-    const [owner] = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
-    if (!owner) return { upserted: 0, removed: 0, rebuiltFrom: null, entries: 0, rulesVersion: 0 };
-    const rules = await activeRuleSet(tx, userId);
+  return db.transaction((tx) => syncInTx(tx, userId, opts));
+}
 
-    const existing = (await tx.select().from(economyEvents).where(eq(economyEvents.userId, userId))).map(rowToEvent);
-    const diff = diffEvents(await desiredEvents(tx, userId), existing, vnToday);
-    if (diff.remove.length) {
-      await tx.delete(economyEvents).where(and(eq(economyEvents.userId, userId), inArray(economyEvents.eventId, diff.remove)));
-    }
-    for (const e of diff.upsert) {
-      const values = { type: e.type, source: e.source, occurredAt: e.occurredAt, vnDate: vnToday(e.occurredAt), data: e.data, updatedAt: new Date() };
-      await tx
-        .insert(economyEvents)
-        .values({ userId, eventId: e.eventId, ...values })
-        .onConflictDoUpdate({ target: [economyEvents.userId, economyEvents.eventId], set: values });
-    }
+/** Như syncEconomy nhưng trong transaction có sẵn (khoá advisory lấy lại được trong cùng phiên). */
+export async function syncInTx(tx: Tx, userId: string, opts: { changedFrom?: string | null; full?: boolean } = {}): Promise<SyncResult> {
+  await lockUser(tx, userId);
+  // User đã bị xoá (vd hook chạy sau khi xoá tài khoản) ⇒ không có gì để đồng bộ.
+  const [owner] = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!owner) return { upserted: 0, removed: 0, rebuiltFrom: null, entries: 0, rulesVersion: 0 };
+  const rules = await activeRuleSet(tx, userId);
 
-    // Bộ luật đổi (version khác với entry đang lưu) ⇒ dựng lại từ đầu.
-    const versions = await tx.selectDistinct({ v: ledgerEntries.rulesVersion }).from(ledgerEntries).where(eq(ledgerEntries.userId, userId));
-    const rulesChanged = versions.some((r) => r.v !== rules.version);
-    const from = opts.full || rulesChanged ? BEGINNING : minDate(diff.earliest, opts.changedFrom);
-    if (from === null) return { upserted: 0, removed: 0, rebuiltFrom: null, entries: 0, rulesVersion: rules.version };
+  const existing = (await tx.select().from(economyEvents).where(eq(economyEvents.userId, userId))).map(rowToEvent);
+  const diff = diffEvents(await desiredEvents(tx, userId), existing, vnToday);
+  if (diff.remove.length) {
+    await tx.delete(economyEvents).where(and(eq(economyEvents.userId, userId), inArray(economyEvents.eventId, diff.remove)));
+  }
+  for (const e of diff.upsert) {
+    const values = { type: e.type, source: e.source, occurredAt: e.occurredAt, vnDate: vnToday(e.occurredAt), data: e.data, updatedAt: new Date() };
+    await tx
+      .insert(economyEvents)
+      .values({ userId, eventId: e.eventId, ...values })
+      .onConflictDoUpdate({ target: [economyEvents.userId, economyEvents.eventId], set: values });
+  }
 
-    const entries = await rebuildFrom(tx, userId, rules, from);
-    return { upserted: diff.upsert.length, removed: diff.remove.length, rebuiltFrom: from, entries, rulesVersion: rules.version };
+  // Bộ luật đổi (version khác với entry đang lưu) ⇒ dựng lại từ đầu.
+  const versions = await tx.selectDistinct({ v: ledgerEntries.rulesVersion }).from(ledgerEntries).where(eq(ledgerEntries.userId, userId));
+  const rulesChanged = versions.some((r) => r.v !== rules.version);
+  const from = opts.full || rulesChanged ? BEGINNING : minDate(diff.earliest, opts.changedFrom);
+  if (from === null) return { upserted: 0, removed: 0, rebuiltFrom: null, entries: 0, rulesVersion: rules.version };
+
+  const entries = await rebuildFrom(tx, userId, rules, from);
+  return { upserted: diff.upsert.length, removed: diff.remove.length, rebuiltFrom: from, entries, rulesVersion: rules.version };
+}
+
+export class PublishError extends Error {}
+
+/**
+ * Phát hành bộ luật mới làm `active` (bộ cũ → `retired`) rồi dựng lại toàn bộ sổ cái — cách chỉnh hệ số trong chế độ bóng.
+ * YAML được kiểm kiểu trước (loadRuleSet); version phải lớn hơn mọi version đã có của user.
+ */
+export async function publishRuleSet(tx: Tx, userId: string, yaml: string, opts: { note?: string | null; proposedBy?: "user" | "brain" } = {}) {
+  const rules = loadRuleSet(yaml);
+  await lockUser(tx, userId);
+  const [{ maxVersion }] = await tx
+    .select({ maxVersion: sql<number | null>`max(${ruleSets.version})` })
+    .from(ruleSets)
+    .where(eq(ruleSets.userId, userId));
+  if (maxVersion != null && rules.version <= maxVersion) {
+    throw new PublishError(`version ${rules.version} phải lớn hơn version cao nhất đã có (${maxVersion})`);
+  }
+  await tx.update(ruleSets).set({ status: "retired" }).where(and(eq(ruleSets.userId, userId), eq(ruleSets.status, "active")));
+  await tx.insert(ruleSets).values({
+    userId,
+    version: rules.version,
+    yaml,
+    status: "active",
+    proposedBy: opts.proposedBy ?? "user",
+    note: opts.note ?? null,
+    approvedAt: new Date(),
   });
+  const sync = await syncInTx(tx, userId, { full: true });
+  return { rules, previousVersion: maxVersion, sync };
 }
 
 /** Xoá entry từ `from` trở đi, dựng lại với số dư mở đầu = tổng Nguyên Tệ trước `from`. Trả số entry đã ghi. */
@@ -290,8 +323,11 @@ export type EconomySummary = {
   today: string;
   rulesVersion: number;
   balance: number;
+  /** Nguyên Tệ kiếm được hôm nay (đã áp, không gồm phạt) so với trần ngày. */
+  nguyenTe: { earnedToday: number; dailyCap: number };
   stamina: { value: number; max: number };
-  health: { value: number; base: number; prevDay: number };
+  /** recentDays: số ngày trong 3 ngày gần nhất (gồm hôm nay) có dữ liệu sức khoẻ — 0 nghĩa là đang dùng giá trị trung tính. */
+  health: { value: number; base: number; prevDay: number; recentDays: number };
   shadow: {
     /** true khi phạt hôm nay chưa trừ thật. */
     active: boolean;
@@ -319,56 +355,67 @@ export type EconomySummary = {
  * `includeShadow` để xem khi chỉnh hệ số.
  */
 export async function economySummary(userId: string, opts: { limit?: number; includeShadow?: boolean } = {}): Promise<EconomySummary> {
-  return db.transaction(async (tx) => {
-    await lockUser(tx, userId);
-    const rules = await activeRuleSet(tx, userId);
-    const today = vnToday();
-    const [eventRows, entryRows, health] = await Promise.all([
-      tx.select().from(economyEvents).where(eq(economyEvents.userId, userId)).orderBy(asc(economyEvents.occurredAt), asc(economyEvents.eventId)),
-      tx.select().from(ledgerEntries).where(eq(ledgerEntries.userId, userId)).orderBy(asc(ledgerEntries.occurredAt), asc(ledgerEntries.eventId), asc(ledgerEntries.ruleId)),
-      loadHealthInputs(tx, userId),
-    ]);
-    const events = eventRows.map(rowToEvent);
-    const first = events.length ? vnToday(events[0].occurredAt) : null;
-    const last = events.length ? vnToday(events[events.length - 1].occurredAt) : today;
-    const { ctx, series } = buildContext(health, rules, first, maxDate(last, today));
-    const live = replay(events, rules, ctx, 0, { allPenaltiesLive: true });
+  return db.transaction((tx) => summaryInTx(tx, userId, opts));
+}
 
-    const typeOf = new Map(eventRows.map((e) => [e.eventId, e.type]));
-    const shadowRows = entryRows.filter((x) => x.shadow);
-    const todayHealth = series.find((h) => h.date === today);
-    const dc = ctx.day(today);
-    const visible = entryRows.filter((x) => opts.includeShadow || !x.shadow);
-    const limit = opts.limit ?? 50;
-    return {
-      today,
-      rulesVersion: rules.version,
-      balance: round2(entryRows.reduce((s, x) => (x.key === "nguyen_te" ? s + x.amount : s), 0)),
-      stamina: { value: staminaOn(today, entryRows, ctx), max: dc.staminaMax },
-      health: { value: todayHealth?.health ?? dc.healthPrev, base: todayHealth?.base ?? dc.healthPrev, prevDay: dc.healthPrev },
-      shadow: {
-        active: rules.penalties_live_from == null || today < rules.penalties_live_from,
-        penaltiesLiveFrom: rules.penalties_live_from,
-        balanceIfLive: live.balance,
-        hiddenPenalties: { count: shadowRows.length, total: round2(shadowRows.reduce((s, x) => s + x.rawAmount, 0)) },
-      },
-      entries: visible
-        .slice(-limit)
-        .reverse()
-        .map((x) => ({
-          eventId: x.eventId,
-          eventType: typeOf.get(x.eventId) ?? "",
-          ruleId: x.ruleId,
-          key: x.key,
-          rawAmount: x.rawAmount,
-          amount: x.amount,
-          shadow: x.shadow,
-          source: x.source,
-          occurredAt: x.occurredAt.toISOString(),
-          vnDate: x.vnDate,
-        })),
-    };
-  });
+export async function summaryInTx(tx: Tx, userId: string, opts: { limit?: number; includeShadow?: boolean } = {}): Promise<EconomySummary> {
+  await lockUser(tx, userId);
+  const rules = await activeRuleSet(tx, userId);
+  const today = vnToday();
+  const [eventRows, entryRows, health] = await Promise.all([
+    tx.select().from(economyEvents).where(eq(economyEvents.userId, userId)).orderBy(asc(economyEvents.occurredAt), asc(economyEvents.eventId)),
+    tx.select().from(ledgerEntries).where(eq(ledgerEntries.userId, userId)).orderBy(asc(ledgerEntries.occurredAt), asc(ledgerEntries.eventId), asc(ledgerEntries.ruleId)),
+    loadHealthInputs(tx, userId),
+  ]);
+  const events = eventRows.map(rowToEvent);
+  const first = events.length ? vnToday(events[0].occurredAt) : null;
+  const last = events.length ? vnToday(events[events.length - 1].occurredAt) : today;
+  const { ctx, series } = buildContext(health, rules, first, maxDate(last, today));
+  const live = replay(events, rules, ctx, 0, { allPenaltiesLive: true });
+
+  const typeOf = new Map(eventRows.map((e) => [e.eventId, e.type]));
+  const shadowRows = entryRows.filter((x) => x.shadow);
+  const todayHealth = series.find((h) => h.date === today);
+  const dc = ctx.day(today);
+  const visible = entryRows.filter((x) => opts.includeShadow || !x.shadow);
+  const limit = opts.limit ?? 50;
+  return {
+    today,
+    rulesVersion: rules.version,
+    balance: round2(entryRows.reduce((s, x) => (x.key === "nguyen_te" ? s + x.amount : s), 0)),
+    nguyenTe: {
+      earnedToday: round2(entryRows.reduce((s, x) => (x.key === "nguyen_te" && x.vnDate === today && x.amount > 0 ? s + x.amount : s), 0)),
+      dailyCap: rules.caps.nguyen_te_per_day,
+    },
+    stamina: { value: staminaOn(today, entryRows, ctx), max: dc.staminaMax },
+    health: {
+      value: todayHealth?.health ?? dc.healthPrev,
+      base: todayHealth?.base ?? dc.healthPrev,
+      prevDay: dc.healthPrev,
+      recentDays: [today, addDaysIso(today, -1), addDaysIso(today, -2)].filter((d) => health.inputs.has(d)).length,
+    },
+    shadow: {
+      active: rules.penalties_live_from == null || today < rules.penalties_live_from,
+      penaltiesLiveFrom: rules.penalties_live_from,
+      balanceIfLive: live.balance,
+      hiddenPenalties: { count: shadowRows.length, total: round2(shadowRows.reduce((s, x) => s + x.rawAmount, 0)) },
+    },
+    entries: visible
+      .slice(-limit)
+      .reverse()
+      .map((x) => ({
+        eventId: x.eventId,
+        eventType: typeOf.get(x.eventId) ?? "",
+        ruleId: x.ruleId,
+        key: x.key,
+        rawAmount: x.rawAmount,
+        amount: x.amount,
+        shadow: x.shadow,
+        source: x.source,
+        occurredAt: x.occurredAt.toISOString(),
+        vnDate: x.vnDate,
+      })),
+  };
 }
 
 const round2 = (x: number) => Math.round(x * 100) / 100;

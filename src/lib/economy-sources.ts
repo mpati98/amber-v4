@@ -1,6 +1,7 @@
 // Dòng dữ liệu thật → sự kiện kinh tế (thuần). eventId ổn định theo id của nguồn: sửa bản ghi ⇒ cùng eventId,
 // sự kiện được cập nhật; xoá bản ghi ⇒ sự kiện biến mất khi đối soát.
 
+import { vnToday } from "@/lib/vn-time";
 import type { EconomyEvent } from "@/lib/economy-engine";
 import { AMBER_TASK_PREFIX } from "@/lib/economy-tasks";
 
@@ -26,14 +27,16 @@ export function studyLogToEvent(row: { id: string; minutes: number; createdAt: D
   };
 }
 
-/** Buổi tập (routine WORKOUT có phút). Dòng không có phút (CHECK) không sinh sự kiện. */
+/** Buổi tập (routine WORKOUT có phút). Dòng không có phút (CHECK) không sinh sự kiện. Thời điểm luôn nằm trong ngày tập. */
 export function routineLogToEvent(row: { id: string; logDate: string; durationMinutes: number | null; createdAt: Date | null }): EconomyEvent | null {
   if (row.durationMinutes == null || row.durationMinutes <= 0) return null;
   return {
     eventId: `${ROUTINE_LOG_PREFIX}:${row.id}`,
     type: "exercise.logged",
     source: "auto",
-    occurredAt: row.createdAt ?? new Date(`${row.logDate}T${WORKOUT_FALLBACK_TIME}+07:00`),
+    // created_at chỉ dùng khi rơi đúng ngày tập (giờ VN). Dòng cũ (null) hoặc ghi bù / nhập thẳng cho ngày khác ⇒ 21:30 VN của ngày tập,
+    // không thì buổi tập bị tính vào ngày ghi.
+    occurredAt: row.createdAt && vnToday(row.createdAt) === row.logDate ? row.createdAt : new Date(`${row.logDate}T${WORKOUT_FALLBACK_TIME}+07:00`),
     data: { minutes: row.durationMinutes },
   };
 }

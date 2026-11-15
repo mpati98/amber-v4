@@ -1,25 +1,79 @@
 // Nạp dữ liệu cho GET /api/kieu-lau/world (màn chủ 3D): 5 chỉ số + sự kiện mới từ nhật ký hoạt động.
 // Công thức nằm ở lib/world-stats.ts (hàm thuần, có test).
-import { and, asc, desc, eq, gt, gte, inArray, lte, max, sql, sum } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, max, sql, sum } from "drizzle-orm";
 import { db } from "@/db";
 import {
-  activityLogs, agentLogs, financeBudgets, financeTransactions, projects, publications, readingGoals, routineLogs, routines, skillScores, sleepLogs,
+  activityLogs, agentLogs, financeBudgets, financeTransactions, projects, publications, readingGoals, routineLogs, routines, skillScores, studyLogs, studySubjects, tasks,
 } from "@/db/schema";
 import { vnMonthBounds, vnToday, vnYear } from "@/lib/vn-time";
-import { activityEvent, heThong, kyNang, nganKho, sinhLuc, triThuc, type WorldEvent, type WorldStat, type WorldStatKey } from "@/lib/world-stats";
+import { activityEvent, heThong, kyNang, nganKho, sucKhoe, triThuc, type WorldEvent, type WorldStat, type WorldStatKey } from "@/lib/world-stats";
+import { economySummary, syncEconomy } from "@/lib/economy-db";
+import { buildLogLines, parseEventRef, type LogLine } from "@/lib/economy-log";
 
 export const addDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
 const MAX_EVENTS = 30;
 
-export async function loadWorldStats(userId: string, now: Date = new Date()): Promise<Record<WorldStatKey, WorldStat>> {
+/** Khối kinh tế của màn chủ (chỉ đọc): Thể lực, Nguyên Tệ, nhật ký luật. Phạt ở chế độ bóng không có ở đây. */
+export type WorldEconomy = {
+  stamina: { v: number; max: number };
+  nguyenTe: { balance: number; earnedToday: number; dailyCap: number };
+  shadow: boolean;
+  log: LogLine[];
+};
+
+/**
+ * Đối soát + tính kinh tế cho màn chủ. Lỗi ⇒ Sức khoẻ null, economy null (màn chủ vẫn chạy với các chỉ số khác).
+ */
+export async function loadWorldEconomy(userId: string): Promise<{ health: WorldStat; economy: WorldEconomy | null }> {
+  try {
+    await syncEconomy(userId);
+    const s = await economySummary(userId, { limit: 60 });
+    const titles = await eventTitles(userId, s.entries.map((e) => e.eventId));
+    return {
+      health: sucKhoe(s.health),
+      economy: {
+        stamina: { v: s.stamina.value, max: s.stamina.max },
+        nguyenTe: { balance: s.balance, earnedToday: s.nguyenTe.earnedToday, dailyCap: s.nguyenTe.dailyCap },
+        shadow: s.shadow.active,
+        log: buildLogLines(s.entries, titles, 20),
+      },
+    };
+  } catch (err) {
+    console.error("Kinh tế màn chủ lỗi:", err instanceof Error ? err.message : err);
+    return { health: { v: null, src: "Chưa tính được Sức khoẻ" }, economy: null };
+  }
+}
+
+/** Tên hiển thị của sự kiện: tên việc / tên môn học / tên routine (lọc theo user). */
+async function eventTitles(userId: string, eventIds: string[]): Promise<Map<string, string>> {
+  const refs = eventIds.map((eventId) => ({ eventId, ...parseEventRef(eventId) }));
+  const ids = (k: string) => [...new Set(refs.filter((r) => r.kind === k).map((r) => r.id!))];
+  const [taskRows, studyRows, routineRows] = await Promise.all([
+    ids("task").length ? db.select({ id: tasks.id, t: tasks.title }).from(tasks).where(and(eq(tasks.userId, userId), inArray(tasks.id, ids("task")))) : [],
+    ids("study").length
+      ? db.select({ id: studyLogs.id, t: studySubjects.name }).from(studyLogs).innerJoin(studySubjects, eq(studySubjects.id, studyLogs.subjectId))
+          .where(and(eq(studyLogs.userId, userId), inArray(studyLogs.id, ids("study"))))
+      : [],
+    ids("routine").length
+      ? db.select({ id: routineLogs.id, t: routines.name }).from(routineLogs).innerJoin(routines, eq(routines.id, routineLogs.routineId))
+          .where(and(eq(routines.userId, userId), inArray(routineLogs.id, ids("routine"))))
+      : [],
+  ]);
+  const byKind = { task: new Map(taskRows.map((r) => [r.id, r.t])), study: new Map(studyRows.map((r) => [r.id, r.t])), routine: new Map(routineRows.map((r) => [r.id, r.t])) };
+  const out = new Map<string, string>();
+  for (const r of refs) {
+    const t = r.kind && r.id ? byKind[r.kind].get(r.id) : undefined;
+    if (t) out.set(r.eventId, t);
+  }
+  return out;
+}
+
+/** Chỉ số 0–100 của màn chủ. `health` (ô sinhLuc) tính ở loadWorldEconomy. */
+export async function loadWorldStats(userId: string, health: WorldStat, now: Date = new Date()): Promise<Record<WorldStatKey, WorldStat>> {
   const today = vnToday(now), year = vnYear(now), { start: monthStart } = vnMonthBounds(now);
 
-  const [lastSleep, workout, finance, goal, books, scores, brain] = await Promise.all([
-    db.query.sleepLogs.findFirst({ where: eq(sleepLogs.userId, userId), orderBy: desc(sleepLogs.date) }),
-    db.select({ minutes: sum(routineLogs.durationMinutes) }).from(routineLogs)
-      .innerJoin(routines, eq(routines.id, routineLogs.routineId))
-      .where(and(eq(routines.userId, userId), eq(routines.kind, "WORKOUT"), gte(routineLogs.logDate, addDays(today, -6)), lte(routineLogs.logDate, today))),
+  const [finance, goal, books, scores, brain] = await Promise.all([
     loadMonthBudget(userId, monthStart),
     db.query.readingGoals.findFirst({ where: eq(readingGoals.year, year) }),
     // Tàng Kinh Các không có user_id (thiết kế 1 người dùng) — giống mọi route sách
@@ -38,11 +92,7 @@ export async function loadWorldStats(userId: string, now: Date = new Date()): Pr
   const brainAt = brain[0]?.at ?? null;
 
   return {
-    sinhLuc: sinhLuc({
-      lastSleep: lastSleep ? { date: lastSleep.date, minutes: lastSleep.sleepMinutes, quality: lastSleep.quality } : null,
-      today,
-      workoutMinutes7d: Number(workout[0]?.minutes ?? 0),
-    }),
+    sinhLuc: health,
     nganKho: nganKho(finance),
     triThuc: triThuc({ targetBooks: goal?.targetBooks ?? null, finished, partial, dayOfYear, daysInYear }),
     kyNang: kyNang(scores.map((s) => s.score)),

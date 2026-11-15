@@ -1,38 +1,14 @@
 // Test công thức chỉ số màn chủ 3D — chạy: npm test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { activityEvent, heThong, kyNang, nganKho, sinhLuc, sleepScore, triThuc, workoutScore } from "./world-stats";
+import { activityEvent, heThong, kyNang, nganKho, sucKhoe, triThuc } from "./world-stats";
 
-test("sleepScore: 7–9 giờ = 100, 3 giờ = 0, ngủ quá nhiều trừ nhẹ, chất lượng nhân hệ số", () => {
-  assert.equal(sleepScore(8 * 60), 100);
-  assert.equal(sleepScore(7 * 60), 100);
-  assert.equal(sleepScore(5 * 60), 50);
-  assert.equal(sleepScore(3 * 60), 0);
-  assert.equal(sleepScore(2 * 60), 0);
-  assert.equal(sleepScore(12 * 60), 70);
-  assert.equal(sleepScore(8 * 60, 5), 100);
-  assert.equal(sleepScore(8 * 60, 1), 60);
-});
-
-test("workoutScore: 150 phút/tuần = 100, không vượt 100", () => {
-  assert.equal(workoutScore(0), 0);
-  assert.equal(workoutScore(75), 50);
-  assert.equal(workoutScore(400), 100);
-});
-
-test("sinhLuc: chưa ghi giấc ngủ 3 ngày → dùng đêm mẫu, đánh dấu sample", () => {
-  const s = sinhLuc({ lastSleep: null, today: "2026-11-15", workoutMinutes7d: 150 });
+test("sucKhoe: lấy giá trị kinh tế, ghi debuff, 3 ngày không dữ liệu ⇒ sample", () => {
+  assert.deepEqual(sucKhoe({ value: 72.4, base: 72.4, recentDays: 2 }), { v: 72, src: "Ngủ, vận động · nền 72" });
+  assert.deepEqual(sucKhoe({ value: 47.4, base: 72.4, recentDays: 1 }), { v: 47, src: "Ngủ, vận động · nền 72 · debuff −25" });
+  const s = sucKhoe({ value: 70, base: 70, recentDays: 0 });
   assert.equal(s.sample, true);
-  assert.equal(s.v, Math.round(0.6 * 80 + 0.4 * 100)); // 7 giờ, chất lượng 3 → 80
-  const old = sinhLuc({ lastSleep: { date: "2026-11-12", minutes: 480, quality: null }, today: "2026-11-15", workoutMinutes7d: 0 });
-  assert.equal(old.sample, true);
-});
-
-test("sinhLuc: có giấc ngủ đêm qua → dùng thật", () => {
-  const s = sinhLuc({ lastSleep: { date: "2026-11-15", minutes: 480, quality: null }, today: "2026-11-15", workoutMinutes7d: 0 });
-  assert.equal(s.sample, undefined);
-  assert.equal(s.v, 60);
-  assert.match(s.src, /ngủ 8,0 giờ đêm qua/);
+  assert.equal(s.v, 70);
 });
 
 test("nganKho: còn bao nhiêu phần ngân sách; thiếu tháng / ngân sách → null", () => {

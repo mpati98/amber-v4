@@ -272,8 +272,8 @@ App Flutter nhúng cảnh 3D (iframe `/world/`) và đẩy dữ liệu vào bằ
   Client gọi khi có trigger (mở / quay lại màn chủ, app trở lại foreground) — không polling. `events` lấy từ `activity_logs` sau `since` (cũ trước, tối đa 30);
   không có `since` → 3 dòng gần nhất. `cursor` giữ micro giây của Postgres (`to_char(... 'US')`) và so bằng `::timestamptz`: KHÔNG đi qua `Date` của JS (cắt còn mili giây → dòng cuối bị đọc lại mãi).
   `source` → công trình: DU_AN/FINANCE → nghisu, TRA_DINH → tradinh, KIEU_LAU/MUSIC → kieulau, LEARN → tangkinh (`SOURCE_TOWER`).
-- Công thức tạm (`lib/world-stats.ts`, có test; chủ dự án sẽ chỉnh): Sinh lực = 60% giấc ngủ (7–9 giờ = 100, chất lượng 1–5 nhân 0,6–1,0; chưa ghi 3 ngày → đêm mẫu 7 giờ, `sample: true`)
-  + 40% phút WORKOUT 7 ngày / 150 · Ngân khố = phần ngân sách tháng còn lại (chỉ danh mục có ngân sách) · Tri thức = sách đọc xong trong năm (+ phần sách đang đọc theo trang) / nhịp mục tiêu năm tới hôm nay
+- Công thức (`lib/world-stats.ts`, có test): ô `sinhLuc` (giữ khoá cho client cũ; hiển thị "Sức khoẻ") = **Sức khoẻ của kinh tế** (`sucKhoe`, từ `economySummary`; 3 ngày không có dữ liệu ngủ / vận động → `sample: true`).
+  Response có thêm `economy: {stamina {v, max}, nguyenTe {balance, earnedToday, dailyCap}, shadow, log[] {eventId, ruleId, text, nguyenTe, stamina, at}} | null` (`loadWorldEconomy`: đối soát + tóm tắt; lỗi ⇒ Sức khoẻ null, economy null) · Ngân khố = phần ngân sách tháng còn lại (chỉ danh mục có ngân sách) · Tri thức = sách đọc xong trong năm (+ phần sách đang đọc theo trang) / nhịp mục tiêu năm tới hôm nay
   · Kỹ năng = trung bình `skill_scores` · Hệ thống = tuổi nhật ký amber-brain mới nhất (≤ 24 giờ = 100, mỗi ngày sau −15). Thiếu dữ liệu → `v: null`.
 - `GET /api/kieu-lau/weather`: Open-Meteo qua server (không khoá), toạ độ `WEATHER_LAT` / `WEATHER_LON` (thiếu → trung tâm TP.HCM), đệm 15 phút theo instance;
   trả `{code (WMO), temp, wind, sunrise, sunset (giờ thập phân giờ VN), source, updatedAt}`; Open-Meteo lỗi → 502 `weather_unavailable`.
@@ -307,8 +307,18 @@ App Flutter nhúng cảnh 3D (iframe `/world/`) và đẩy dữ liệu vào bằ
   YAML mặc định làm `active` (sửa file YAML sau đó KHÔNG tự áp cho user đã có bộ luật — phải đổi `rule_sets`). amber-brain chỉ được tạo `proposed`. `next.config.ts` kèm `economy/**/*.yaml` vào bundle (`outputFileTracingIncludes`).
 - Sức khoẻ (`lib/economy-health.ts`): ngủ từ `sleep_logs`; vận động = check-in tối nếu có, không thì tổng phút WORKOUT của ngày; debuff từ `debuffs`. Thiếu thành phần ⇒ nền hôm trước (trung tính). Sẽ thay `sinhLuc` của `world-stats.ts`.
 - Cửa hàng (`lib/economy-shop.ts`): `purchaseRefusal` — chỉ mua khi số dư ≥ giá (đang nợ không mua được). Route cửa hàng chưa làm.
-- Kiểm: `npm test` (`economy-*.test.ts`), `npx tsx scripts/economy-e2e.ts` (DEV, cần `npm run dev`; đối soát, sửa/xoá quá khứ, idempotent, dựng toàn bộ = dựng dần, bóng, route, hook, cô lập user), `node scripts/economy-schema-check.mjs` (chỉ đọc).
-- Chưa làm: route check-in / debuff, cửa hàng + thẻ miễn phạt, hồi thể lực khi nghỉ, hiệu chỉnh theo tự chấm 13:00, thay Sinh lực trên màn 3D, UI.
+- Kiểm: `npm test` (`economy-*.test.ts`, `health-input.test.ts`), `npx tsx scripts/economy-e2e.ts` (DEV, cần `npm run dev`; đối soát, sửa/xoá quá khứ, idempotent, dựng toàn bộ = dựng dần, đồng bộ song song,
+  phát hành luật, bóng, route kinh tế / check-in / debuff, hook, cô lập user), `npm run test:world` (Sức khoẻ + khối economy), `node scripts/economy-schema-check.mjs` (chỉ đọc).
+- **Chỉnh hệ số**: `npx tsx scripts/economy-publish-rules.ts <file.yaml> --user <email> [--note ".."] [--dry-run]` — kiểm kiểu file, trong MỘT transaction: bộ `active` cũ → `retired`, file thành `active`
+  (version trong file phải lớn hơn mọi version đã có, không thì `PublishError`), dựng lại toàn bộ, in số dư trước / sau, số dư nếu bật phạt, phạt bóng. `--dry-run` làm hết rồi rollback.
+  Mặc định DEV; production cần `--production --yes-production` và endpoint `ep-divine-feather-b3zba6y0` (0018/0019 chưa có trên production thì lệnh sẽ lỗi). Hàm: `publishRuleSet(tx, …)`, `syncInTx`, `summaryInTx`.
+- **Check-in** (`/api/du-an/check-ins`, `lib/health-input.ts`): `GET ?days=14`, `PUT {date, slot: "noon", staminaSelf 1–5}` | `{date, slot: "evening", exerciseMinutes?, sportMinutes?, restDay?}` (mỗi mốc chỉ nhận trường của nó,
+  ghi lại = thay cả mốc; 60 ngày trước tới hôm nay), `DELETE /[date]/[slot]` (404 `checkin_not_found`). Chỉ mốc tối là đầu vào Sức khoẻ (hook `changedFrom` = ngày đó); `staminaSelf` lưu lại, chưa dùng.
+- **Debuff** (`/api/du-an/debuffs`): `GET ?days=30` (còn hiệu lực + bắt đầu trong N ngày), `POST {level: light|medium|heavy, label?, startedAt? ISO}` → 201, `PATCH /[id] {level?, label?, endedAt? ISO | null}`,
+  `DELETE /[id]` (404 `debuff_not_found`). Lỗi giờ: `future_start`, `too_old` (> 60 ngày, chỉ khi tạo), `ended_before_started`, `future_end`. Hook dựng lại từ mốc sớm nhất bị ảnh hưởng (`debuffChangedFrom`).
+- Buổi tập: thời điểm = `created_at` CHỈ khi rơi đúng ngày tập (giờ VN); khác ngày (ghi bù, nhập thẳng DB) hoặc null ⇒ 21:30 VN của ngày tập.
+- Nhật ký luật màn chủ: `lib/economy-log.ts` (`buildLogLines` gộp theo (sự kiện, luật), `RULE_LABEL`, tên việc / môn / routine tra theo eventId).
+- Chưa làm: cửa hàng + thẻ miễn phạt (sau chế độ bóng), hồi thể lực khi nghỉ, hiệu chỉnh theo tự chấm 13:00, màn nhập check-in / debuff ở Flutter.
 
 ## Việc còn treo (chưa quyết)
 
