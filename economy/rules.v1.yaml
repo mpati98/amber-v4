@@ -8,6 +8,11 @@ version: 1
 # Bật phạt: đặt ngày "YYYY-MM-DD"; phạt từ ngày đó trở đi mới trừ thật, phạt cũ vẫn là bóng.
 penalties_live_from: null
 
+# Nguyên Tệ bắt đầu từ ngày lên production (số dư 0). Sự kiện trước ngày này chỉ làm hao thể lực, không sinh Nguyên Tệ.
+# warmup_days: chỉ lấy sự kiện + dữ liệu sức khoẻ từ (nguyen_te_from − warmup_days) để làm nóng Sức khoẻ / Thể lực.
+nguyen_te_from: "2026-11-16"
+warmup_days: 14
+
 caps:
   nguyen_te_per_day: 100   # trần KIẾM mỗi ngày (phạt không bị trần)
   manual_weight: 0.5       # entry từ dữ liệu nhập tay nhân hệ số này

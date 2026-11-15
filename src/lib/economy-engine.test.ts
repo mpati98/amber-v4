@@ -7,9 +7,13 @@ import { ledgerBalance, mergeEvents, replay, staminaOn, type EconomyEvent } from
 import { loadRuleSet, RuleSetError } from "./economy-rules";
 import { buildEconomyContext, buildHealthSeries, sleepScore, type EconomyContext, type HealthDayInput } from "./economy-health";
 import { purchaseRefusal } from "./economy-shop";
+import { historyStart } from "./economy-sources";
+import { addDaysIso } from "./deadline-alert";
 import { amberOccurrenceToSource, amberTaskToSource, isOnTime, taskToEvent } from "./economy-tasks";
 
-const DEFAULT_TEXT = fs.readFileSync(path.join(process.cwd(), "economy/rules.v1.yaml"), "utf8");
+// Test dùng ngày cố định (tháng 11/2026) ⇒ bỏ ngày bắt đầu Nguyên Tệ của file mặc định; có test riêng cho nó.
+const FILE_TEXT = fs.readFileSync(path.join(process.cwd(), "economy/rules.v1.yaml"), "utf8");
+const DEFAULT_TEXT = FILE_TEXT.replace(/^nguyen_te_from: .*$/m, "nguyen_te_from: null");
 // Phần lớn test kiểm luật phạt ⇒ dùng bản đã bật phạt; chế độ bóng (mặc định) có test riêng.
 const RULES_TEXT = DEFAULT_TEXT.replace("penalties_live_from: null", 'penalties_live_from: "2000-01-01"');
 const rules = loadRuleSet(RULES_TEXT);
@@ -315,4 +319,35 @@ test("ngữ cảnh ngoài chuỗi Sức khoẻ: trước ngày đầu ⇒ nền 
   assert.equal(ctx.day("2026-11-01").healthPrev, 70);
   assert.equal(ctx.day("2026-11-30").healthPrev, s[1].health);
   assert.ok(s[1].health < 70);
+});
+
+test("file mặc định: Nguyên Tệ bắt đầu từ ngày lên production, làm nóng 14 ngày", () => {
+  const rs = loadRuleSet(FILE_TEXT);
+  assert.match(rs.nguyen_te_from ?? "", /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(rs.warmup_days, 14);
+  assert.equal(rs.penalties_live_from, null, "chế độ bóng vẫn bật");
+  assert.equal(historyStart(rs), addDaysIso(rs.nguyen_te_from!, -14));
+  assert.equal(historyStart(loadRuleSet(DEFAULT_TEXT)), null);
+});
+
+test("nguyen_te_from: sự kiện trước ngày bắt đầu không sinh Nguyên Tệ (số dư 0) nhưng vẫn hao thể lực", () => {
+  const start = loadRuleSet(RULES_TEXT.replace("nguyen_te_from: null", 'nguyen_te_from: "2026-11-21"'));
+  const before = [study("2026-11-20", 60), task("2026-11-20", { est: 3 }), task("2026-11-20", { onTime: false, est: 5 })];
+  const r = replay(before, start, flatCtx());
+  assert.equal(r.balance, 0);
+  assert.ok(r.entries.every((x) => x.key === "stamina"), "chỉ còn entry thể lực");
+  assert.equal(r.entries.length, 3);
+  assert.equal(r.staminaByDay.get("2026-11-20"), 92 - 3 - 18 - 30);
+  // Từ ngày bắt đầu: thưởng / phạt bình thường, số dư tính từ 0
+  const after = [study("2026-11-21", 60), task("2026-11-21", { onTime: false, est: 2 })];
+  assert.equal(replay([...before, ...after], start, flatCtx()).balance, 10 - 4);
+  // Dựng lại từ đầu vẫn ra số dư 0 cho phần trước ngày bắt đầu
+  assert.equal(replay(before, start, flatCtx(), 0).entries.filter((x) => x.key === "nguyen_te").length, 0);
+});
+
+test("historyStart: nguyen_te_from − warmup_days; null = toàn bộ lịch sử", () => {
+  assert.equal(historyStart({ nguyen_te_from: "2026-11-16", warmup_days: 14 }), "2026-11-02");
+  assert.equal(historyStart({ nguyen_te_from: "2026-11-16", warmup_days: 0 }), "2026-11-16");
+  assert.equal(historyStart({ nguyen_te_from: null, warmup_days: 14 }), null);
+  assert.throws(() => loadRuleSet(DEFAULT_TEXT.replace("warmup_days: 14", "warmup_days: 90")), /warmup_days/);
 });

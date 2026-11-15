@@ -1,6 +1,7 @@
 // Dòng dữ liệu thật → sự kiện kinh tế (thuần). eventId ổn định theo id của nguồn: sửa bản ghi ⇒ cùng eventId,
 // sự kiện được cập nhật; xoá bản ghi ⇒ sự kiện biến mất khi đối soát.
 
+import { addDaysIso } from "@/lib/deadline-alert";
 import { vnToday } from "@/lib/vn-time";
 import type { EconomyEvent } from "@/lib/economy-engine";
 import { AMBER_TASK_PREFIX } from "@/lib/economy-tasks";
@@ -39,6 +40,13 @@ export function routineLogToEvent(row: { id: string; logDate: string; durationMi
     occurredAt: row.createdAt && vnToday(row.createdAt) === row.logDate ? row.createdAt : new Date(`${row.logDate}T${WORKOUT_FALLBACK_TIME}+07:00`),
     data: { minutes: row.durationMinutes },
   };
+}
+
+/**
+ * Ngày VN sớm nhất còn được dùng (sự kiện + dữ liệu sức khoẻ): `nguyen_te_from − warmup_days`; null = dùng toàn bộ lịch sử.
+ */
+export function historyStart(rules: { nguyen_te_from: string | null; warmup_days: number }): string | null {
+  return rules.nguyen_te_from == null ? null : addDaysIso(rules.nguyen_te_from, -rules.warmup_days);
 }
 
 /** So sánh nội dung hai sự kiện (bỏ qua thứ tự khoá của jsonb). */

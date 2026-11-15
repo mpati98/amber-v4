@@ -54,6 +54,10 @@ async function main() {
     const [rt] = await db.insert(routines).values({ userId: a.id, name: "E2E tập", kind: "WORKOUT" }).returning();
     const [rl] = await db.insert(routineLogs).values({ routineId: rt.id, logDate: d1, durationMinutes: 30, createdAt: null }).returning();
 
+    // Bộ luật của test: như mặc định nhưng không có ngày bắt đầu Nguyên Tệ (dữ liệu test nằm ở các ngày trước hôm nay).
+    const baseYaml = fs.readFileSync("economy/rules.v1.yaml", "utf8").replace(/^nguyen_te_from: .*$/m, "nguyen_te_from: null");
+    await db.insert(ruleSets).values({ userId: a.id, version: 1, yaml: baseYaml, status: "active", note: "e2e" });
+
     // ---- Đối soát lần đầu ----
     const s1 = await syncEconomy(a.id);
     check("lần đầu: 4 sự kiện, dựng từ ngày sớm nhất", s1.upserted === 4 && s1.removed === 0 && s1.rebuiltFrom === d2, s1);
@@ -116,8 +120,7 @@ async function main() {
     check("song song vẫn cho đúng sổ cái", JSON.stringify(await ledgerRows(a.id)) === JSON.stringify(before));
 
     // ---- Phát hành bộ luật mới (chỉnh hệ số) ----
-    const v1yaml = fs.readFileSync("economy/rules.v1.yaml", "utf8");
-    const v2yaml = v1yaml.replace("version: 1", "version: 2").replace('"4 * min(e.est_hours, 8)', '"5 * min(e.est_hours, 8)');
+    const v2yaml = baseYaml.replace("version: 1", "version: 2").replace('"4 * min(e.est_hours, 8)', '"5 * min(e.est_hours, 8)');
     const pub = await db.transaction((tx) => publishRuleSet(tx, a.id, v2yaml, { note: "e2e" }));
     check("phát hành v2: dựng lại từ đầu", pub.previousVersion === 1 && pub.sync.rebuiltFrom === "0001-01-01" && pub.sync.rulesVersion === 2, pub.sync);
     check("số dư theo hệ số mới (t2 = 5 × 1)", (await economySummary(a.id)).balance === 5);
@@ -131,7 +134,16 @@ async function main() {
       () => check("luật sai kiểu bị từ chối, không ghi gì", false),
       async (e) => check("luật sai kiểu bị từ chối, không ghi gì", /không có trường/.test(String(e)) && (await db.select().from(ruleSets).where(eq(ruleSets.userId, a.id))).length === 2, String(e)),
     );
-    check("sổ cái giữ đúng entry v2", (await ledgerRows(a.id)).length > 0 && (await db.selectDistinct({ v: ledgerEntries.rulesVersion }).from(ledgerEntries).where(eq(ledgerEntries.userId, a.id))).every((r) => r.v === 2));
+    // ---- Ngày bắt đầu Nguyên Tệ + cửa sổ làm nóng: v3 bắt đầu hôm nay, làm nóng 1 ngày ⇒ t2 (ngày −2) ra khỏi cửa sổ, số dư 0 ----
+    const v3 = await db.transaction((tx) => publishRuleSet(tx, a.id, v2yaml.replace("version: 2", "version: 3").replace("nguyen_te_from: null", `nguyen_te_from: "${today}"`).replace("warmup_days: 14", "warmup_days: 1")));
+    const evIds = (await db.select({ id: economyEvents.eventId }).from(economyEvents).where(eq(economyEvents.userId, a.id))).map((r) => r.id);
+    check("v3: sự kiện trước cửa sổ làm nóng bị xoá (t2), buổi tập hôm qua giữ", v3.sync.removed === 1 && !evIds.includes(`amber-task:${t2.id}:done`) && evIds.some((x) => x.startsWith("routine-log:")), { sync: v3.sync, evIds });
+    const s3sum = await economySummary(a.id);
+    check("v3: số dư 0 (không có sự kiện từ hôm nay), không entry Nguyên Tệ trước ngày bắt đầu", s3sum.balance === 0 && (await ledgerRows(a.id)).every((x) => x.key !== "nguyen_te" || x.vnDate >= today), s3sum.balance);
+    const v4 = await db.transaction((tx) => publishRuleSet(tx, a.id, v2yaml.replace("version: 2", "version: 4")));
+    check("v4 (không ngày bắt đầu): t2 trở lại, số dư 5", v4.sync.upserted === 1 && (await economySummary(a.id)).balance === 5, v4.sync);
+
+    check("sổ cái giữ đúng entry v4", (await ledgerRows(a.id)).length > 0 && (await db.selectDistinct({ v: ledgerEntries.rulesVersion }).from(ledgerEntries).where(eq(ledgerEntries.userId, a.id))).every((r) => r.v === 4));
 
     // ---- HTTP ----
     const A = await signAccessToken(a.id), B = await signAccessToken(b.id);

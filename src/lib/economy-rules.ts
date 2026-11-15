@@ -42,6 +42,10 @@ const ruleSetYaml = z.object({
   // Chế độ bóng: null ⇒ mọi phạt Nguyên Tệ chỉ được ghi lại, không trừ. Đặt ngày "YYYY-MM-DD" ⇒ phạt của sự kiện
   // từ ngày đó trở đi mới trừ thật; phạt trước đó giữ nguyên là bóng (bật phạt không đổ dồn phạt cũ).
   penalties_live_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+  // Ngày bắt đầu tính Nguyên Tệ (số dư 0 từ đây). Sự kiện trước ngày này không bao giờ sinh entry Nguyên Tệ — chỉ hao thể lực.
+  // null = tính từ mọi sự kiện. Cùng `warmup_days`: chỉ lấy sự kiện + dữ liệu sức khoẻ từ (ngày này − warmup_days) để làm nóng Sức khoẻ / Thể lực.
+  nguyen_te_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+  warmup_days: z.number().int().min(0).max(60).default(14),
   caps: z
     .object({
       nguyen_te_per_day: num(100).pipe(z.number().nonnegative()),

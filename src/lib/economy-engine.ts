@@ -110,6 +110,8 @@ export function replay(
       for (const d of rule.do) raw.push({ ruleId: rule.id, key: d.key, amount: round2(d.amount.run(env) as number) });
     }
     for (const r of raw) {
+      // Trước ngày bắt đầu Nguyên Tệ: không ghi entry Nguyên Tệ nào (số dư bắt đầu từ 0); thể lực vẫn tính để làm nóng.
+      if (r.key === "nguyen_te" && rules.nguyen_te_from != null && vnDate < rules.nguyen_te_from) continue;
       // Hệ số manual chỉ giảm Nguyên Tệ tự khai; thể lực vẫn hao đủ (một giờ học tự ghi vẫn là một giờ học).
       const weighted = ev.source === "manual" && r.key === "nguyen_te" ? round2(r.amount * manualWeight) : r.amount;
       let applied: number;

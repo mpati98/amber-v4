@@ -35,7 +35,7 @@ import {
   type HealthDayInput,
 } from "@/lib/economy-health";
 import { loadRuleSet, type RuleSet } from "@/lib/economy-rules";
-import { diffEvents, minDate, routineLogToEvent, studyLogToEvent } from "@/lib/economy-sources";
+import { diffEvents, historyStart, minDate, routineLogToEvent, studyLogToEvent } from "@/lib/economy-sources";
 import { amberOccurrenceToSource, amberTaskToSource, taskToEvent } from "@/lib/economy-tasks";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -72,7 +72,13 @@ async function activeRuleSet(tx: Tx, userId: string): Promise<RuleSet> {
 }
 
 /** Sự kiện mong muốn tính từ dữ liệu thật của các nguồn được quản lý. */
-async function desiredEvents(tx: Tx, userId: string): Promise<EconomyEvent[]> {
+async function desiredEvents(tx: Tx, userId: string, from: string | null): Promise<EconomyEvent[]> {
+  const all = await allSourceEvents(tx, userId);
+  // Ngoài cửa sổ lịch sử (trước nguyen_te_from − warmup_days) ⇒ không thành sự kiện (đối soát sẽ xoá nếu đã có).
+  return from == null ? all : all.filter((e) => vnToday(e.occurredAt) >= from);
+}
+
+async function allSourceEvents(tx: Tx, userId: string): Promise<EconomyEvent[]> {
   const [taskRows, occRows, cardRows, studyRows, workoutRows] = await Promise.all([
     tx
       .select({
@@ -136,7 +142,7 @@ function rowToEvent(r: typeof economyEvents.$inferSelect): EconomyEvent {
 type HealthInputs = { inputs: Map<string, HealthDayInput>; debuffs: DebuffSpan[]; firstDate: string | null };
 
 /** Đầu vào Sức khoẻ theo ngày: giấc ngủ, phút tập (check-in tối thắng; không có thì cộng buổi WORKOUT), ngày nghỉ, debuff. */
-async function loadHealthInputs(tx: Tx, userId: string): Promise<HealthInputs> {
+async function loadHealthInputs(tx: Tx, userId: string, from: string | null = null): Promise<HealthInputs> {
   const [sleep, workouts, evening, debuffRows] = await Promise.all([
     tx.select({ date: sleepLogs.date, minutes: sleepLogs.sleepMinutes, quality: sleepLogs.quality }).from(sleepLogs).where(eq(sleepLogs.userId, userId)),
     tx
@@ -165,7 +171,11 @@ async function loadHealthInputs(tx: Tx, userId: string): Promise<HealthInputs> {
     if (c.sport != null) v.sportMinutes = c.sport;
     v.restDay = c.rest;
   }
-  const spans = debuffRows.map((d) => ({ level: d.level as DebuffLevel, startedAt: d.startedAt, endedAt: d.endedAt }));
+  // Cửa sổ lịch sử: bỏ ngày sức khoẻ trước `from` và debuff đã hết trước đó (chuỗi Sức khoẻ làm nóng từ nền khởi điểm tại `from`).
+  if (from != null) for (const d of [...inputs.keys()]) if (d < from) inputs.delete(d);
+  const spans = debuffRows
+    .filter((d) => from == null || d.endedAt == null || vnToday(d.endedAt) >= from)
+    .map((d) => ({ level: d.level as DebuffLevel, startedAt: d.startedAt, endedAt: d.endedAt }));
   const firstDate = minDate(...inputs.keys(), ...spans.map((d) => vnToday(d.startedAt)));
   return { inputs, debuffs: spans, firstDate };
 }
@@ -203,7 +213,7 @@ export async function syncInTx(tx: Tx, userId: string, opts: { changedFrom?: str
   const rules = await activeRuleSet(tx, userId);
 
   const existing = (await tx.select().from(economyEvents).where(eq(economyEvents.userId, userId))).map(rowToEvent);
-  const diff = diffEvents(await desiredEvents(tx, userId), existing, vnToday);
+  const diff = diffEvents(await desiredEvents(tx, userId, historyStart(rules)), existing, vnToday);
   if (diff.remove.length) {
     await tx.delete(economyEvents).where(and(eq(economyEvents.userId, userId), inArray(economyEvents.eventId, diff.remove)));
   }
@@ -271,7 +281,7 @@ async function rebuildFrom(tx: Tx, userId: string, rules: RuleSet, from: string)
   ).map(rowToEvent);
   if (events.length === 0) return 0;
 
-  const health = await loadHealthInputs(tx, userId);
+  const health = await loadHealthInputs(tx, userId, historyStart(rules));
   const lastDay = vnToday(events[events.length - 1].occurredAt);
   const { ctx } = buildContext(health, rules, vnToday(events[0].occurredAt), maxDate(lastDay, vnToday()));
   const result = replay(events, rules, ctx, Number(opening));
@@ -365,7 +375,7 @@ export async function summaryInTx(tx: Tx, userId: string, opts: { limit?: number
   const [eventRows, entryRows, health] = await Promise.all([
     tx.select().from(economyEvents).where(eq(economyEvents.userId, userId)).orderBy(asc(economyEvents.occurredAt), asc(economyEvents.eventId)),
     tx.select().from(ledgerEntries).where(eq(ledgerEntries.userId, userId)).orderBy(asc(ledgerEntries.occurredAt), asc(ledgerEntries.eventId), asc(ledgerEntries.ruleId)),
-    loadHealthInputs(tx, userId),
+    loadHealthInputs(tx, userId, historyStart(rules)),
   ]);
   const events = eventRows.map(rowToEvent);
   const first = events.length ? vnToday(events[0].occurredAt) : null;
