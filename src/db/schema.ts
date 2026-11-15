@@ -116,6 +116,8 @@ export const tasks = pgTable(
     importance: integer("importance").notNull(),
     urgency: integer("urgency").notNull(),
     durationMinutes: integer("duration_minutes").notNull().default(15),
+    // Giờ thực tế (phút) nhập khi đóng việc — chỉ làm hao Thể lực, KHÔNG quyết định thưởng (thưởng theo duration_minutes).
+    actualMinutes: integer("actual_minutes"),
     startDate: date("start_date"),
     dueDate: date("due_date"),
     prepLeadDays: integer("prep_lead_days"),
@@ -126,7 +128,10 @@ export const tasks = pgTable(
     notifyDeadline: boolean("notify_deadline").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("tasks_kr_id_idx").on(table.krId)]
+  (table) => [
+    index("tasks_kr_id_idx").on(table.krId),
+    check("tasks_actual_minutes_check", sql`${table.actualMinutes} is null or ${table.actualMinutes} between 0 and 14400`),
+  ]
 );
 
 // Checklist con của một việc — tick hết không tự chuyển việc sang DONE.
@@ -776,6 +781,188 @@ export const sleepLogs = pgTable(
     uniqueIndex("sleep_logs_user_id_date_key").on(table.userId, table.date),
     check("sleep_logs_sleep_minutes_check", sql`${table.sleepMinutes} between 0 and 1440`),
     check("sleep_logs_quality_check", sql`${table.quality} is null or ${table.quality} between 1 and 5`),
+  ]
+);
+
+// ===== Kinh tế Âm Dương Giới (migration 0018) — xem lib/economy-*.ts =====
+// Sự kiện là nguồn sự thật; ledger_entries là BẢN CHIẾU dựng lại từ sự kiện + bộ luật đang hiệu lực
+// (sự kiện về muộn ⇒ xoá entry từ ngày đó trở đi rồi dựng lại). Số dư / chỉ số không lưu cứng.
+
+export const economyEvents = pgTable(
+  "economy_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Khoá có tiền tố nguồn: "amber-task:<id>:done", "study-log:<id>", "ats-task:<id>:done"…
+    eventId: varchar("event_id", { length: 200 }).notNull(),
+    type: varchar("type", { length: 64 }).notNull(),
+    source: varchar("source", { length: 16 }).notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    vnDate: date("vn_date").notNull(),
+    data: jsonb("data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("economy_events_user_id_event_id_key").on(table.userId, table.eventId),
+    index("economy_events_user_id_vn_date_idx").on(table.userId, table.vnDate),
+    check("economy_events_source_check", sql`${table.source} in ('auto', 'manual')`),
+  ]
+);
+
+export const ledgerEntries = pgTable(
+  "ledger_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    eventId: varchar("event_id", { length: 200 }).notNull(),
+    ruleId: varchar("rule_id", { length: 64 }).notNull(),
+    rulesVersion: integer("rules_version").notNull(),
+    key: varchar("key", { length: 32 }).notNull(),
+    // raw_amount = kết quả luật (sau hệ số manual); amount = phần thật sự áp sau trần ngày / sàn nợ / kẹp thể lực.
+    rawAmount: numeric("raw_amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
+    amount: numeric("amount", { precision: 12, scale: 2, mode: "number" }).notNull(),
+    source: varchar("source", { length: 16 }).notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    vnDate: date("vn_date").notNull(),
+  },
+  (table) => [
+    uniqueIndex("ledger_entries_user_id_event_id_rule_id_key_key").on(table.userId, table.eventId, table.ruleId, table.key),
+    index("ledger_entries_user_id_vn_date_idx").on(table.userId, table.vnDate),
+    // Xoá sự kiện (vd task mở lại) ⇒ entry của nó xoá theo.
+    foreignKey({ columns: [table.userId, table.eventId], foreignColumns: [economyEvents.userId, economyEvents.eventId], name: "ledger_entries_event_fk" }).onDelete("cascade"),
+    check("ledger_entries_key_check", sql`${table.key} in ('nguyen_te', 'stamina')`),
+    check("ledger_entries_source_check", sql`${table.source} in ('auto', 'manual')`),
+  ]
+);
+
+// Bộ luật theo phiên bản. Một bộ `active` / user; amber-brain chỉ được tạo `proposed`, người dùng phê chuẩn.
+export const ruleSets = pgTable(
+  "rule_sets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    yaml: text("yaml").notNull(),
+    status: varchar("status", { length: 16 }).notNull(),
+    proposedBy: varchar("proposed_by", { length: 16 }).notNull().default("user"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("rule_sets_user_id_version_key").on(table.userId, table.version),
+    uniqueIndex("rule_sets_one_active_key").on(table.userId).where(sql`${table.status} = 'active'`),
+    check("rule_sets_status_check", sql`${table.status} in ('active', 'proposed', 'retired', 'rejected')`),
+    check("rule_sets_proposed_by_check", sql`${table.proposedBy} in ('user', 'brain')`),
+  ]
+);
+
+// Check-in trưa / tối (sáng: giấc ngủ nằm ở sleep_logs, debuff mới ở debuffs). 1 dòng / user / ngày / mốc.
+export const checkIns = pgTable(
+  "check_ins",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    slot: varchar("slot", { length: 16 }).notNull(),
+    staminaSelf: integer("stamina_self"),
+    exerciseMinutes: integer("exercise_minutes"),
+    sportMinutes: integer("sport_minutes"),
+    restDay: boolean("rest_day").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("check_ins_user_id_date_slot_key").on(table.userId, table.date, table.slot),
+    check("check_ins_slot_check", sql`${table.slot} in ('noon', 'evening')`),
+    check("check_ins_stamina_self_check", sql`${table.staminaSelf} is null or ${table.staminaSelf} between 1 and 5`),
+    check("check_ins_exercise_minutes_check", sql`${table.exerciseMinutes} is null or ${table.exerciseMinutes} between 0 and 1440`),
+    check("check_ins_sport_minutes_check", sql`${table.sportMinutes} is null or ${table.sportMinutes} between 0 and 1440`),
+  ]
+);
+
+// Bệnh / trạng thái xấu: hiệu lực tới khi người dùng đánh dấu hết (ended_at). Debuff chỉ nới luật, không phạt thêm.
+export const debuffs = pgTable(
+  "debuffs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    level: varchar("level", { length: 16 }).notNull(),
+    label: varchar("label", { length: 255 }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("debuffs_user_id_started_at_idx").on(table.userId, table.startedAt),
+    check("debuffs_level_check", sql`${table.level} in ('light', 'medium', 'heavy')`),
+    check("debuffs_ended_after_started_check", sql`${table.endedAt} is null or ${table.endedAt} >= ${table.startedAt}`),
+  ]
+);
+
+// Phần thưởng thật do người dùng tự đặt (danh mục, giá Nguyên Tệ, giới hạn đổi mỗi tuần).
+export const rewardItems = pgTable(
+  "reward_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    price: integer("price").notNull(),
+    weeklyLimit: integer("weekly_limit"),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("reward_items_price_check", sql`${table.price} > 0`),
+    check("reward_items_weekly_limit_check", sql`${table.weeklyLimit} is null or ${table.weeklyLimit} > 0`),
+  ]
+);
+
+// Mỗi lần đổi thưởng ⇒ một sự kiện "redeem:<id>". Giữ giá lúc đổi (giá món có thể đổi sau).
+export const redemptions = pgTable(
+  "redemptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => rewardItems.id, { onDelete: "restrict" }),
+    price: integer("price").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("redemptions_user_id_at_idx").on(table.userId, table.at)]
+);
+
+// Thẻ miễn phạt: mua trước (sự kiện "buy-card:<id>"), gắn vào một task sắp trễ. task_ref có tiền tố nguồn
+// ("amber-task:<id>", "amber-task-occ:<id>:<ngày>", "ats-task:<id>"). Mỗi task tối đa một thẻ.
+export const exemptionCards = pgTable(
+  "exemption_cards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    price: integer("price").notNull(),
+    boughtAt: timestamp("bought_at", { withTimezone: true }).notNull().defaultNow(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    taskRef: varchar("task_ref", { length: 200 }),
+  },
+  (table) => [
+    uniqueIndex("exemption_cards_user_id_task_ref_key").on(table.userId, table.taskRef),
+    check("exemption_cards_price_check", sql`${table.price} >= 0`),
+    check("exemption_cards_used_check", sql`(${table.taskRef} is null) = (${table.usedAt} is null)`),
   ]
 );
 

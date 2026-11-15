@@ -1,0 +1,72 @@
+# Luật kinh tế Âm Dương Giới — bản 1 (15/11/2026).
+# Biến trạng thái (giá trị TRƯỚC sự kiện): nguyen_te, stamina, health (Sức khoẻ chốt cuối ngày hôm trước), debuff_active.
+# Dữ liệu sự kiện: e.*. Biểu thức: số học, min/max/abs, so sánh, and/or/not, `a if cond else b`. Không có eval.
+# Hệ số là giá trị khởi điểm; chỉnh sau vài tuần chạy thử. Đổi luật ⇒ tăng version.
+version: 1
+
+caps:
+  nguyen_te_per_day: 100   # trần KIẾM mỗi ngày (phạt không bị trần)
+  manual_weight: 0.5       # entry từ dữ liệu nhập tay nhân hệ số này
+  debt_floor: -200         # số dư thấp nhất; phạt vượt sàn bị xoá
+
+health:
+  initial_base: 70
+  smoothing: 0.7           # nền_t = 0.7 × nền_{t-1} + 0.3 × điểm_ngày
+  sleep_weight: 0.5        # điểm_ngày = 0.5 × ngủ + 0.5 × vận động
+  sleep_ok_min_hours: 6.5
+  sleep_ok_max_hours: 8
+  sleep_penalty_per_hour: 25
+  sleep_hours_weight: 0.6  # điểm_ngủ = 0.6 × giờ + 0.4 × chất lượng
+  exercise_target_minutes: 30
+  sport_factor: 1.5
+  rest_day_score: 70
+  debuff: { light: 10, medium: 25, heavy: 40 }
+
+stamina:
+  base: 60                 # stamina_max = 60 + 0.4 × health
+  per_health: 0.4
+  morning_min_ratio: 0.5   # thể lực sáng = max × clamp(điểm_ngủ/100, 0.5, 1)
+
+rules:
+  - id: task_on_time
+    event: task.completed
+    when: "e.on_time"
+    do:
+      - { key: nguyen_te, amount: "4 * min(e.est_hours, 8) * (1.1 if health >= 70 else 1)" }
+      - { key: stamina,   amount: "-6 * min(e.hours, 8)" }
+
+  - id: task_late
+    event: task.completed
+    when: "not e.on_time and stamina >= 40 and not debuff_active and not e.card_used"
+    do:
+      - { key: nguyen_te, amount: "-min(2 * e.est_hours, 20)" }
+      - { key: stamina,   amount: "-6 * min(e.hours, 8)" }
+
+  # Hết pin, có debuff hoặc đã gắn thẻ miễn phạt: không phạt, vẫn hao thể lực.
+  - id: task_late_waived
+    event: task.completed
+    when: "not e.on_time and (stamina < 40 or debuff_active or e.card_used)"
+    do:
+      - { key: stamina, amount: "-6 * min(e.hours, 8)" }
+
+  - id: study
+    event: study.logged
+    do:
+      - { key: nguyen_te, amount: "min(e.minutes, 60) / 6" }
+      - { key: stamina,   amount: "-e.minutes / 20" }
+
+  - id: exercise_stamina
+    event: exercise.logged
+    do:
+      - { key: stamina, amount: "-e.minutes / 30" }
+
+  # Hai đường tiêu Nguyên Tệ duy nhất.
+  - id: redeem
+    event: redeem
+    do:
+      - { key: nguyen_te, amount: "-e.price" }
+
+  - id: buy_card
+    event: buy_card
+    do:
+      - { key: nguyen_te, amount: "-e.price" }

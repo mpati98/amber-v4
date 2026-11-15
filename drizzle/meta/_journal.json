@@ -127,6 +127,13 @@
       "when": 1794709399660,
       "tag": "0017_sleep_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794745521893,
+      "tag": "0018_kinh_te",
+      "breakpoints": true
     }
   ]
 }

@@ -52,5 +52,13 @@ export default defineConfig({
     "study_card_day_plan_items",
     "music_tracks",
     "sleep_logs",
+    "economy_events",
+    "ledger_entries",
+    "rule_sets",
+    "check_ins",
+    "debuffs",
+    "reward_items",
+    "redemptions",
+    "exemption_cards",
   ],
 });

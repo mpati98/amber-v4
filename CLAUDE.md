@@ -283,6 +283,25 @@ App Flutter nhúng cảnh 3D (iframe `/world/`) và đẩy dữ liệu vào bằ
 - **Migration 0017 đã áp production 15/11/2026** (xem "Triển khai production"); code lên production cùng ngày (`c8e189b`).
 - Kiểm thử: `npm test` (công thức, Open-Meteo, validate giấc ngủ), `npm run test:world` (tích hợp trên DEV, cần `npm run dev`; gọi Open-Meteo thật).
 
+## Kinh tế Âm Dương Giới (nhánh `feat/kinh-te`, migration `0018_kinh_te`, 15/11/2026)
+
+Đặc tả + khảo sát + quyết định của chủ dự án: `../plan/amber-5-kinh-te-khao-sat.md`. **0018 mới áp Neon DEV, chưa áp production; chưa có route.**
+
+- **Sự kiện là nguồn sự thật** (`economy_events`, unique `(user_id, event_id)`, eventId có tiền tố nguồn: `amber-task:<id>:done`, `amber-task-occ:<id>:<ngày>:done`, `study-log:<id>`, `ats-task:<id>:done`…).
+  `ledger_entries` là **bản chiếu**: sự kiện về muộn ⇒ xoá entry từ `vn_date` đó trở đi rồi dựng lại với số dư mở đầu = tổng `amount` trước ngày đó. Task mở lại ⇒ xoá sự kiện (entry xoá theo FK ghép cascade), dựng lại — không có bút toán đảo.
+- Bộ thi hành (`lib/economy-engine.ts`, thuần): Nguyên Tệ = kết quả luật → × `manual_weight` (entry manual) → trần kiếm ngày (chỉ phần dương, ngày VN) → sàn nợ (phạt vượt sàn bị xoá).
+  Thể lực = thể lực sáng + entry trong ngày theo thứ tự thời gian, kẹp `[0, stamina_max]` sau mỗi entry. Biến trong biểu thức = trạng thái TRƯỚC sự kiện; `health` = Sức khoẻ chốt cuối ngày hôm trước.
+  `raw_amount` (kết quả luật) vs `amount` (phần thật sự áp) để nhật ký giải thích được vì sao bị cắt.
+- Luật là dữ liệu: `economy/rules.v1.yaml` (mặc định) → `lib/economy-rules.ts` (zod + biên dịch). Biểu thức qua `lib/economy-expr.ts`: parser riêng, **không eval**, kiểm kiểu lúc nạp
+  (tên biến/trường lạ, sai kiểu, `constructor`/`__proto__` đều bị từ chối). Thêm loại sự kiện ⇒ thêm vào `EVENT_FIELDS`. Bảng `rule_sets`: một bộ `active` / user (chỉ mục duy nhất một phần); amber-brain chỉ được tạo `proposed`.
+  Route đọc YAML lúc chạy trên Vercel cần `outputFileTracingIncludes` cho `economy/*.yaml` (hoặc nạp từ `rule_sets`).
+- Sức khoẻ / Thể lực: `lib/economy-health.ts` (hệ số nằm trong YAML mục `health`, `stamina`). Thiếu dữ liệu một thành phần ⇒ lấy nền hôm trước (trung tính, không phạt). Sẽ thay `sinhLuc` trong `world-stats.ts` (hiển thị "Sức khoẻ").
+- Task: `lib/economy-tasks.ts` — interface `TaskSource` (ats-app cắm vào ở giai đoạn 2), thưởng theo giờ ƯỚC LƯỢNG (`duration_minutes / 60`), giờ thực tế `tasks.actual_minutes` (mới) chỉ làm hao thể lực.
+  Đúng hạn: hạn kiểu ngày ⇒ trước 00:00 VN ngày hôm sau; hạn kiểu thời điểm ⇒ so UTC. Hoàn thành = `status_changed_at` khi DONE; task lặp theo `task_occurrences.completed_at`, hạn = ngày xảy ra.
+- Bảng khác của 0018: `check_ins` (trưa/tối; sáng dùng `sleep_logs`), `debuffs`, `reward_items`, `redemptions`, `exemption_cards` (`task_ref` có tiền tố nguồn, mỗi task tối đa một thẻ).
+- Kiểm: `npm test` (`economy-*.test.ts`, gồm tiêu chí nghiệm thu mục 13), `node scripts/economy-schema-check.mjs` (chỉ đọc).
+- Chưa làm: nạp sự kiện từ `tasks` / `study_logs` / `routine_logs` vào `economy_events` + hàm dựng lại có DB, route, cửa hàng, hiệu chỉnh thể lực theo check-in 13:00, mức hồi khi nghỉ.
+
 ## Việc còn treo (chưa quyết)
 
 - Kết thúc buổi Trà Đình và bài test đầu vào **ghi đè** toàn bộ điểm kỹ năng AI
