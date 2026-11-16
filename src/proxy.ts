@@ -43,11 +43,14 @@ export default auth((req) => {
   // mobile — proxy KHÔNG còn là lớp chặn cho các path này, route nào quên bọc
   // withAuth sẽ mở công khai. Ngoại lệ duy nhất: /api/mobile/auth/*.
   // Các prefix ngoài /api/mobile/* dùng chung cho web + Flutter.
+  // Preflight CORS không kèm token nên phải trả lời TRƯỚC mọi kiểm tra auth, với
+  // MỌI path /api (kể cả path chưa nằm trong SELF_AUTH_API_PREFIXES như /api/learn).
+  // Header CORS do next.config.ts gắn vào. Method khác OPTIONS vẫn đi qua auth.
+  if (req.method === "OPTIONS" && req.nextUrl.pathname.startsWith("/api")) {
+    return new NextResponse(null, { status: 204 });
+  }
+
   if (isSelfAuthApi(req.nextUrl.pathname)) {
-    // Preflight CORS không kèm token. Header CORS do next.config.ts gắn vào.
-    if (req.method === "OPTIONS") {
-      return new NextResponse(null, { status: 204 });
-    }
     return NextResponse.next();
   }
 
