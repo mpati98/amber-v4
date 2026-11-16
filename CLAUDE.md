@@ -215,6 +215,11 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
   `drizzle.__drizzle_migrations` = 17/18; 42 bảng public; số dư ví (Cash 2.185.000, Momo −3.350.565) không đổi. Kiểm bằng `node scripts/migration-status.mjs PRODUCTION` (chỉ đọc, khớp theo dấu thời gian, báo migration bị bỏ qua).
   Deploy: backend `dpl_C2chmRj897QZmQoUSCqJA32gk4Vh` (`c8e189b`) Ready 11:52 UTC; smoke: `/api/health` 200, `/api/kieu-lau/world|weather` + `/api/du-an/sleep` không token 401, preflight từ `amber.duangmai.io.vn` 204; log không lỗi.
   Mốc rollback: `dpl_AUGKDhrLfpRfzqYgtUfwMiG5B5qW` (`3b2eacb`, 09/11) — chạy được trên schema mới (0017 chỉ thêm bảng).
+- **Migration production 0018 + 0019** (kinh tế) áp ngày **15/11/2026** — production **19/20** (0014 vẫn bỏ qua), 50 bảng public, số dư ví (Cash 2.185.000, Momo −3.350.565) không đổi.
+  Mốc PITR: *chưa ghi lại* (bổ sung nếu chủ dự án có). Deploy: backend `dpl_2vi61YfmYjoSB7PkrxmDKkV6Fc97` (`0ff8e1e`) tạo 15:21 UTC; smoke 16/11: `/api/health` 200,
+  `/api/kieu-lau/kinh-te`, `/api/du-an/check-ins|debuffs` không token 401, preflight 204; log không lỗi. Chế độ bóng bật (`penalties_live_from: null`), Nguyên Tệ tính từ 16/11.
+  Chưa xác minh route kinh tế có token (bước 5 của `../plan/amber-5-kinh-te-rollout.md`). Flutter chưa deploy giao diện kinh tế (chủ dự án quyết định).
+  Mốc rollback: `dpl_C2chmRj897QZmQoUSCqJA32gk4Vh` (`c8e189b`) — chạy được trên schema mới.
 - **Quy trình migrate production đã chạy tốt** — làm lại đúng thế này:
   1. Sao lưu: tạo nhánh Neon từ production (console; máy này không có `neonctl`). Nếu người dùng bỏ bước này (06/11/2026) thì dựa vào point-in-time restore và ghi mốc UTC (có giây) ngay trước lệnh migrate.
   2. Thử trước trên nhánh tách từ production (`test-migrate-*`): ghi số dòng + số dư ví + số migration đã áp
@@ -283,9 +288,9 @@ App Flutter nhúng cảnh 3D (iframe `/world/`) và đẩy dữ liệu vào bằ
 - **Migration 0017 đã áp production 15/11/2026** (xem "Triển khai production"); code lên production cùng ngày (`c8e189b`).
 - Kiểm thử: `npm test` (công thức, Open-Meteo, validate giấc ngủ), `npm run test:world` (tích hợp trên DEV, cần `npm run dev`; gọi Open-Meteo thật).
 
-## Kinh tế Âm Dương Giới (nhánh `feat/kinh-te`, migration `0018_kinh_te` + `0019_kinh_te_bong`, 15/11/2026)
+## Kinh tế Âm Dương Giới (đã gộp vào `main`, migration `0018_kinh_te` + `0019_kinh_te_bong`, 15/11/2026)
 
-Đặc tả + khảo sát + quyết định của chủ dự án: `../plan/amber-5-kinh-te-khao-sat.md`. **0018 + 0019 chỉ áp Neon DEV, chưa áp production.**
+Đặc tả + khảo sát + quyết định của chủ dự án: `../plan/amber-5-kinh-te-khao-sat.md`. **0018 + 0019 đã áp DEV và production (15/11/2026).**
 
 - **Sự kiện là nguồn sự thật** (`economy_events`, unique `(user_id, event_id)`). eventId ổn định theo id nguồn: `amber-task:<id>:done`, `amber-task-occ:<id>:<ngày>:done`, `study-log:<id>`,
   `routine-log:<id>` (chỉ WORKOUT có phút); sau này `ats-task:<id>:done`, `redeem:<id>`, `buy-card:<id>`. Đối soát chỉ quản lý 4 tiền tố đầu (`MANAGED_PREFIXES`) — sự kiện cửa hàng không bao giờ bị đối soát xoá.
@@ -311,7 +316,7 @@ App Flutter nhúng cảnh 3D (iframe `/world/`) và đẩy dữ liệu vào bằ
   phát hành luật, bóng, route kinh tế / check-in / debuff, hook, cô lập user), `npm run test:world` (Sức khoẻ + khối economy), `node scripts/economy-schema-check.mjs` (chỉ đọc).
 - **Chỉnh hệ số**: `npx tsx scripts/economy-publish-rules.ts <file.yaml> --user <email> [--note ".."] [--dry-run]` — kiểm kiểu file, trong MỘT transaction: bộ `active` cũ → `retired`, file thành `active`
   (version trong file phải lớn hơn mọi version đã có, không thì `PublishError`), dựng lại toàn bộ, in số dư trước / sau, số dư nếu bật phạt, phạt bóng. `--dry-run` làm hết rồi rollback.
-  Mặc định DEV; production cần `--production --yes-production` và endpoint `ep-divine-feather-b3zba6y0` (0018/0019 chưa có trên production thì lệnh sẽ lỗi). Hàm: `publishRuleSet(tx, …)`, `syncInTx`, `summaryInTx`.
+  Mặc định DEV; production cần `--production --yes-production` và endpoint `ep-divine-feather-b3zba6y0`. Hàm: `publishRuleSet(tx, …)`, `syncInTx`, `summaryInTx`.
 - **Check-in** (`/api/du-an/check-ins`, `lib/health-input.ts`): `GET ?days=14`, `PUT {date, slot: "noon", staminaSelf 1–5}` | `{date, slot: "evening", exerciseMinutes?, sportMinutes?, restDay?}` (mỗi mốc chỉ nhận trường của nó,
   ghi lại = thay cả mốc; 60 ngày trước tới hôm nay), `DELETE /[date]/[slot]` (404 `checkin_not_found`). Chỉ mốc tối là đầu vào Sức khoẻ (hook `changedFrom` = ngày đó); `staminaSelf` lưu lại, chưa dùng.
 - **Debuff** (`/api/du-an/debuffs`): `GET ?days=30` (còn hiệu lực + bắt đầu trong N ngày), `POST {level: light|medium|heavy, label?, startedAt? ISO}` → 201, `PATCH /[id] {level?, label?, endedAt? ISO | null}`,
