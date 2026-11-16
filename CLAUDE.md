@@ -216,7 +216,7 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
   Deploy: backend `dpl_C2chmRj897QZmQoUSCqJA32gk4Vh` (`c8e189b`) Ready 11:52 UTC; smoke: `/api/health` 200, `/api/kieu-lau/world|weather` + `/api/du-an/sleep` không token 401, preflight từ `amber.duangmai.io.vn` 204; log không lỗi.
   Mốc rollback: `dpl_AUGKDhrLfpRfzqYgtUfwMiG5B5qW` (`3b2eacb`, 09/11) — chạy được trên schema mới (0017 chỉ thêm bảng).
 - **Migration production 0018 + 0019** (kinh tế) áp ngày **15/11/2026** — production **19/20** (0014 vẫn bỏ qua), 50 bảng public, số dư ví (Cash 2.185.000, Momo −3.350.565) không đổi.
-  Mốc PITR: *chưa ghi lại* (bổ sung nếu chủ dự án có). Deploy: backend `dpl_2vi61YfmYjoSB7PkrxmDKkV6Fc97` (`0ff8e1e`) tạo 15:21 UTC; smoke 16/11: `/api/health` 200,
+  Mốc PITR `2026-11-15T15:18:53Z` (ghi ngay trước migrate, không có nhánh sao lưu). Deploy: backend `dpl_2vi61YfmYjoSB7PkrxmDKkV6Fc97` (`0ff8e1e`) tạo 15:21 UTC; smoke 16/11: `/api/health` 200,
   `/api/kieu-lau/kinh-te`, `/api/du-an/check-ins|debuffs` không token 401, preflight 204; log không lỗi. Chế độ bóng bật (`penalties_live_from: null`), Nguyên Tệ tính từ 16/11.
   16/11: `dpl_3Y3er3i34HMWSrsxfu8ZH2W1Dm6G` (`fa6c13d`, preflight 204 mọi `/api`) đang chạy. Xác minh có token (app cũ mở `/api/kieu-lau/world` → 200, log không lỗi):
   `rule_sets` 1 bản v1 `active` (tự cài lúc đồng bộ đầu 15/11 15:26 UTC), 1 sự kiện trong cửa sổ làm nóng (`study-log`, Thể lực −0.20), Nguyên Tệ 0 (tính từ 16/11), chưa có check-in / debuff.
