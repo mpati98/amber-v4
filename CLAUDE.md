@@ -218,8 +218,9 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
 - **Migration production 0018 + 0019** (kinh tế) áp ngày **15/11/2026** — production **19/20** (0014 vẫn bỏ qua), 50 bảng public, số dư ví (Cash 2.185.000, Momo −3.350.565) không đổi.
   Mốc PITR: *chưa ghi lại* (bổ sung nếu chủ dự án có). Deploy: backend `dpl_2vi61YfmYjoSB7PkrxmDKkV6Fc97` (`0ff8e1e`) tạo 15:21 UTC; smoke 16/11: `/api/health` 200,
   `/api/kieu-lau/kinh-te`, `/api/du-an/check-ins|debuffs` không token 401, preflight 204; log không lỗi. Chế độ bóng bật (`penalties_live_from: null`), Nguyên Tệ tính từ 16/11.
-  Chưa xác minh route kinh tế có token (bước 5 của `../plan/amber-5-kinh-te-rollout.md`). Flutter chưa deploy giao diện kinh tế (chủ dự án quyết định).
-  Mốc rollback: `dpl_C2chmRj897QZmQoUSCqJA32gk4Vh` (`c8e189b`) — chạy được trên schema mới.
+  16/11: `dpl_3Y3er3i34HMWSrsxfu8ZH2W1Dm6G` (`fa6c13d`, preflight 204 mọi `/api`) đang chạy. Xác minh có token (app cũ mở `/api/kieu-lau/world` → 200, log không lỗi):
+  `rule_sets` 1 bản v1 `active` (tự cài lúc đồng bộ đầu 15/11 15:26 UTC), 1 sự kiện trong cửa sổ làm nóng (`study-log`, Thể lực −0.20), Nguyên Tệ 0 (tính từ 16/11), chưa có check-in / debuff.
+  Flutter chưa deploy giao diện kinh tế (chủ dự án quyết định). Mốc rollback: `dpl_2vi61YfmYjoSB7PkrxmDKkV6Fc97` (`0ff8e1e`), rồi `dpl_C2chmRj897QZmQoUSCqJA32gk4Vh` (`c8e189b`) — đều chạy được trên schema mới.
 - **Quy trình migrate production đã chạy tốt** — làm lại đúng thế này:
   1. Sao lưu: tạo nhánh Neon từ production (console; máy này không có `neonctl`). Nếu người dùng bỏ bước này (06/11/2026) thì dựa vào point-in-time restore và ghi mốc UTC (có giây) ngay trước lệnh migrate.
   2. Thử trước trên nhánh tách từ production (`test-migrate-*`): ghi số dòng + số dư ví + số migration đã áp
