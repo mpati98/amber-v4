@@ -223,6 +223,9 @@ thay vì `blobUrl`. Stream relay hỗ trợ HTTP Range để seek được.
   16/11: `dpl_3Y3er3i34HMWSrsxfu8ZH2W1Dm6G` (`fa6c13d`, preflight 204 mọi `/api`) đang chạy. Xác minh có token (app cũ mở `/api/kieu-lau/world` → 200, log không lỗi):
   `rule_sets` 1 bản v1 `active` (tự cài lúc đồng bộ đầu 15/11 15:26 UTC), 1 sự kiện trong cửa sổ làm nóng (`study-log`, Thể lực −0.20), Nguyên Tệ 0 (tính từ 16/11), chưa có check-in / debuff.
   Flutter chưa deploy giao diện kinh tế (chủ dự án quyết định). Mốc rollback: `dpl_2vi61YfmYjoSB7PkrxmDKkV6Fc97` (`0ff8e1e`), rồi `dpl_C2chmRj897QZmQoUSCqJA32gk4Vh` (`c8e189b`) — đều chạy được trên schema mới.
+- **Migration production 0020** (`0020_ats_tasks`: bảng `ats_tasks` + `sync_cursors`, task ats-app) áp ngày **17/11/2026**, mốc PITR `2026-11-17T14:09:01Z` (ghi ngay trước migrate, không có nhánh sao lưu).
+  Production giờ **20/21** (0014 vẫn bỏ qua), 52 bảng public; 2 bảng mới rỗng lúc áp; số dòng `users` 1, `projects` 6, `tasks` 2, `finance_transactions` 46, `activity_logs` 66 và số dư ví
+  (Cash 2.185.000, Momo −3.350.565) không đổi. Env ats (4 biến) đã đặt trên Vercel Production.
 - **Quy trình migrate production đã chạy tốt** — làm lại đúng thế này:
   1. Sao lưu: tạo nhánh Neon từ production (console; máy này không có `neonctl`). Nếu người dùng bỏ bước này (06/11/2026) thì dựa vào point-in-time restore và ghi mốc UTC (có giây) ngay trước lệnh migrate.
   2. Thử trước trên nhánh tách từ production (`test-migrate-*`): ghi số dòng + số dư ví + số migration đã áp
@@ -333,7 +336,8 @@ App Flutter nhúng cảnh 3D (iframe `/world/`) và đẩy dữ liệu vào bằ
 
 Task công việc ở công ty (ats-app) được sao về Amber để XEM trong Nghị Sự Đường. **Chỉ đọc, một chiều**: không route nào sửa/xoá task ATS,
 không bao giờ gọi ats-app bằng method khác GET. **Không đụng** `tasks`, `projects`, KR, summary, overview, close, kinh tế, Kiều Lâu.
-0020 mới áp DEV (chưa áp production; chỉ thêm 2 bảng nên bản code cũ chạy được trên schema mới).
+**0020 đã áp DEV và production (17/11/2026)** — xem "Triển khai production". Chỉ thêm 2 bảng nên bản code cũ chạy được trên schema mới.
+Env `ATS_TASKS_URL`, `ATS_TASKS_TOKEN`, `CRON_SECRET`, `ATS_SYNC_USER_ID` đã đặt trên Vercel Production (17/11/2026).
 
 - **Bảng** `ats_tasks`: `ats_id` text, unique `(user_id, ats_id)`; `title`, `status` (giá trị GỐC `DOING|WAITING|DONE|null`), `due_date`, `done_at`,
   `ats_created_at`, `ats_updated_at`, `project_ats_id/name/type/archived`; `status_changed_at` do Amber ghi (lần đầu = `ats_updated_at`; sau đó chỉ đổi khi status khác
