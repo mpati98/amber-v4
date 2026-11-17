@@ -60,5 +60,7 @@ export default defineConfig({
     "reward_items",
     "redemptions",
     "exemption_cards",
+    "ats_tasks",
+    "sync_cursors",
   ],
 });

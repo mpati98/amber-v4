@@ -11,6 +11,11 @@ Personal productivity domain. Daily tasks, routines (CHECK/WORKOUT), and summari
 | `routines` | GET/POST | Bearer | List/create routines |
 | `routines/[id]` | GET/PATCH/DELETE | Bearer | Get/update/delete routine |
 | `routines/[id]/logs/[date]` | PUT/DELETE | Bearer | Log routine (CHECK or WORKOUT) |
+| `ats-tasks` | GET | Bearer | Task ats-app (bản sao chỉ đọc); `?all=1`; tự đồng bộ nền nếu lần thử trước > 5 phút |
+| `ats-tasks/sync` | POST | Bearer | Đồng bộ ngay (chờ xong), tối thiểu 30 giây giữa hai lần → 429 |
+| `ats-tasks/cron` | GET | `Bearer $CRON_SECRET` | Vercel Cron 23:00 UTC; KHÔNG withAuth (cố ý), user = `ATS_SYNC_USER_ID` |
+
+Chi tiết ats-tasks: mục "Task ats-app" trong `amber-v4/CLAUDE.md`.
 
 ## Routines
 
