@@ -45,6 +45,8 @@ Biến code cần (không bao giờ in giá trị ra log/output):
 | `PORTFOLIO_ORIGIN` | CORS cho form liên hệ của site portfolio (`next.config.ts`); thiếu thì KHÔNG mở origin nào |
 | `RESEND_API_KEY`, `CONTACT_NOTIFY_EMAIL` | `lib/contact.ts` — gửi email báo có tin nhắn liên hệ |
 | `AUTH_TRUST_HOST=true` | chỉ cần khi tự host (`next start` ngoài Vercel) |
+| `ATS_TASKS_URL`, `ATS_TASKS_TOKEN` | `lib/ats-client.ts` — endpoint + Bearer token ats-app (chỉ GET). Thiếu ⇒ đồng bộ trả 503 `ats_not_configured`, ghi `last_error` |
+| `CRON_SECRET`, `ATS_SYNC_USER_ID` | `/api/du-an/ats-tasks/cron` — secret Vercel Cron + uuid user nhận dữ liệu. Thiếu ⇒ 503 |
 
 **`.env` local trỏ Neon DEV BRANCH** (host `…-pooler`). URL production giữ ở
 `DATABASE_URL_PRODUCTION` (code không đọc; chỉ dùng khi migrate production, xem "Triển khai production"). Build/test
@@ -66,7 +68,7 @@ src/
   types/next-auth.d.ts
 drizzle/                migration Drizzle (nguồn sự thật hiện tại)
 prisma/migrations/      lịch sử Prisma cũ — chỉ để tham khảo, Prisma đã gỡ
-vercel.json             { "regions": ["sin1"] } — gần Neon Singapore
+vercel.json             regions ["sin1"] (gần Neon Singapore) + 1 cron: /api/du-an/ats-tasks/cron lúc 0 23 * * * (UTC)
 ```
 
 ### Xác thực
@@ -326,6 +328,36 @@ App Flutter nhúng cảnh 3D (iframe `/world/`) và đẩy dữ liệu vào bằ
 - Buổi tập: thời điểm = `created_at` CHỈ khi rơi đúng ngày tập (giờ VN); khác ngày (ghi bù, nhập thẳng DB) hoặc null ⇒ 21:30 VN của ngày tập.
 - Nhật ký luật màn chủ: `lib/economy-log.ts` (`buildLogLines` gộp theo (sự kiện, luật), `RULE_LABEL`, tên việc / môn / routine tra theo eventId).
 - Chưa làm: cửa hàng + thẻ miễn phạt (sau chế độ bóng), hồi thể lực khi nghỉ, hiệu chỉnh theo tự chấm 13:00, màn nhập check-in / debuff ở Flutter.
+
+## Task ats-app (đồng bộ một chiều, migration `0020_ats_tasks`, nhánh `feat/ats-tasks-sync` 17/11/2026)
+
+Task công việc ở công ty (ats-app) được sao về Amber để XEM trong Nghị Sự Đường. **Chỉ đọc, một chiều**: không route nào sửa/xoá task ATS,
+không bao giờ gọi ats-app bằng method khác GET. **Không đụng** `tasks`, `projects`, KR, summary, overview, close, kinh tế, Kiều Lâu.
+0020 mới áp DEV (chưa áp production; chỉ thêm 2 bảng nên bản code cũ chạy được trên schema mới).
+
+- **Bảng** `ats_tasks`: `ats_id` text, unique `(user_id, ats_id)`; `title`, `status` (giá trị GỐC `DOING|WAITING|DONE|null`), `due_date`, `done_at`,
+  `ats_created_at`, `ats_updated_at`, `project_ats_id/name/type/archived`; `status_changed_at` do Amber ghi (lần đầu = `ats_updated_at`; sau đó chỉ đổi khi status khác
+  bản đang lưu, lấy `ats_updated_at` của bản mới); `synced_at` = lần cuối dòng bị ghi (dòng không đổi không bị ghi lại).
+  `sync_cursors` PK `(user_id, source)` (`source = 'ats'`): `since` (= `serverTime` trang đầu của ats, KHÔNG dùng đồng hồ Amber), `last_attempt_at`, `last_success_at`, `last_ids_check_at`, `last_error`.
+- **Một lần đồng bộ** (`runAtsSync`, `lib/ats-sync.ts`; không bao giờ ném lỗi, trả `ok | throttled | error`):
+  1. Giành lượt nguyên tử: `INSERT … ON CONFLICT DO UPDATE SET last_attempt_at = now() WHERE last_attempt_at < now() - interval` — vừa giới hạn tần suất vừa chống chạy chồng giữa các instance.
+  2. Gọi mạng NGOÀI transaction (`lib/ats-client.ts`, timeout 15s, `limit=1000`, lặp theo `nextCursor`, zod): kéo task với `updatedSince = since − 2 phút` (lần đầu / `full`: kéo hết), rồi `idsOnly=1`.
+  3. Một transaction + `pg_advisory_xact_lock('ats-sync:'+userId)`: upsert theo `(user_id, ats_id)` CHỈ khi có cột khác (`setWhere is distinct from`, nên lần kéo chồng lấn không đếm là sửa),
+     xoá dòng không còn trong danh sách id (ats xoá cứng), ghi `since`, `last_success_at`, `last_ids_check_at`, xoá `last_error`.
+  - **Chống xoá hàng loạt**: `idsOnly` trả rỗng mà bản sao còn dữ liệu ⇒ không xoá, `last_error = "deletion_skipped: …"` (vẫn tính là thành công).
+  - Lỗi (thiếu env, mạng, timeout, 401/403, HTTP khác, sai dạng) ⇒ `last_error = "<code>: <thông báo>"`, dữ liệu cũ giữ nguyên. Thông báo không chứa token/URL.
+  - `logActivity` `DU_AN` / `ats.synced` chỉ khi có thêm/sửa/xoá (title + metadata kèm số lượng).
+- **Route** (dưới `/api/du-an` ⇒ đã nằm trong `SELF_AUTH_API_PREFIXES`, KHÔNG sửa `proxy.ts`):
+  - `GET /api/du-an/ats-tasks` (withAuth, `?all=1`): trả ngay `{tasks: [{id, atsId, title, status, rawStatus, dueDate, doneAt, project: {atsId, name, type, archived}, attention}], sync: {lastSuccessAt, lastAttemptAt, lastError}}`;
+    lần thử trước ≥ 5 phút ⇒ đồng bộ nền bằng `after()`. Mặc định ẩn project lưu trữ và task DONE có `done_at` quá 7 ngày. Thứ tự: OVERDUE → việc mở (hạn tăng dần, null cuối) → DONE (xong gần nhất trước).
+  - `POST /api/du-an/ats-tasks/sync` (withAuth): chờ xong → 200 `{result: {fetched, inserted, updated, deleted, deletionSkipped}, sync}`; trong 30 giây từ lần thử trước → 429 `sync_throttled` + `retryAfterSeconds`;
+    thiếu env → 503 `ats_not_configured`; lỗi từ ats → 502 `ats_sync_failed` (`code`: `unauthorized|http_error|timeout|network|bad_payload`); lỗi DB → 500.
+  - `GET /api/du-an/ats-tasks/cron`: **cố ý không withAuth** — kiểm `Authorization: Bearer $CRON_SECRET` (băm SHA-256 rồi `timingSafeEqual`, `lib/cron-auth.ts`), sai/thiếu → 401, chưa đặt secret → 503.
+    User = `ATS_SYNC_USER_ID` (sai/không tồn tại → 503). Kéo **toàn bộ** (không `updatedSince`) để bắt thay đổi project (đổi tên, lưu trữ) không làm đổi `updatedAt` của task. `vercel.json`: `0 23 * * *` (06:00 VN).
+- **Ánh xạ status** (chỉ lúc trả ra, `lib/ats-tasks.ts`): `null → PREP`, `DOING → IN_PROGRESS`, `WAITING → WAITING` (nhãn riêng, KHÔNG phải REVIEW), `DONE → DONE`; `rawStatus` giữ giá trị gốc.
+  **Attention** chỉ `"OVERDUE"` (chưa DONE và `due_date < vnToday()`), không IDLE, không gộp vào `attention[]` của summary.
+- Kiểm: `npm test` (`ats-tasks.test.ts`, `ats-client.test.ts` với fetch giả, `cron-auth.test.ts`); `npx tsx scripts/ats-sync-e2e.ts` (DEV, ats-app GIẢ chạy trong script ở :4599 —
+  cách khởi động dev server ghi ở đầu file; 57 task, idempotent, sửa/xoá, 401, ids rỗng, cron, đồng bộ nền, nhật ký; xoá user tạm ở cuối).
 
 ## Việc còn treo (chưa quyết)
 

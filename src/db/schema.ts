@@ -970,6 +970,51 @@ export const exemptionCards = pgTable(
   ]
 );
 
+// ===== Task ats-app (migration 0020) — bản sao CHỈ ĐỌC, đồng bộ một chiều. Xem lib/ats-sync.ts =====
+// Không có route ghi nào từ phía người dùng; status giữ nguyên giá trị gốc của ats (DOING | WAITING | DONE | null),
+// ánh xạ sang trạng thái Amber chỉ lúc trả ra (lib/ats-tasks.ts).
+export const atsTasks = pgTable(
+  "ats_tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    atsId: text("ats_id").notNull(),
+    title: text("title").notNull(),
+    status: varchar("status", { length: 16 }),
+    dueDate: date("due_date"),
+    doneAt: timestamp("done_at", { withTimezone: true }),
+    atsCreatedAt: timestamp("ats_created_at", { withTimezone: true }).notNull(),
+    atsUpdatedAt: timestamp("ats_updated_at", { withTimezone: true }).notNull(),
+    projectAtsId: text("project_ats_id"),
+    projectName: text("project_name"),
+    projectType: varchar("project_type", { length: 16 }),
+    projectArchived: boolean("project_archived").notNull().default(false),
+    // Amber tự ghi: lần đầu = ats_updated_at; sau đó chỉ đổi khi status khác bản đang lưu (ats không trả mốc đổi trạng thái).
+    statusChangedAt: timestamp("status_changed_at", { withTimezone: true }).notNull(),
+    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("ats_tasks_user_id_ats_id_key").on(table.userId, table.atsId)]
+);
+
+// Trạng thái đồng bộ theo (user, nguồn). `since` lấy từ serverTime của nguồn — KHÔNG dùng đồng hồ Amber.
+export const syncCursors = pgTable(
+  "sync_cursors",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    source: varchar("source", { length: 32 }).notNull(),
+    since: timestamp("since", { withTimezone: true }),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    lastIdsCheckAt: timestamp("last_ids_check_at", { withTimezone: true }),
+    lastError: text("last_error"),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.source] })]
+);
+
 // ============================================================
 // Relations — đặt sau CÙNG, sau khi mọi bảng đã được định nghĩa,
 // để tránh lỗi "Cannot access 'X' before initialization" lúc runtime.
